@@ -64,7 +64,9 @@ See `voice-router-pipecat/router_config.json`. Examples:
 | `VOICE_ROUTER_MOONSHINE_MODEL` | `tiny-streaming` | Moonshine STT model |
 | `VOICE_ROUTER_FUZZY_THRESHOLD` | `85` | Fuzzy route match score |
 | `VOICE_ROUTER_LLM_MAX_TOKENS` | `64` | LLM fallback response length |
-| `VOICE_ROUTER_INPUT_DEVICE_INDEX` | `1` | PyAudio input device |
+| `VOICE_ROUTER_INPUT_DEVICE_MATCH` | `USB Composite Device,USB Audio` | Substrings to find mic (survives reboot) |
+| `VOICE_ROUTER_INPUT_DEVICE_EXCLUDE` | `hdmi,nvidia,monitor,spdif` | Skip output/HDMI pseudo-devices |
+| `VOICE_ROUTER_INPUT_DEVICE_INDEX` | _(empty)_ | Optional numeric override only |
 | `VOICE_ROUTER_TTS_CMD` | _(empty)_ | e.g. `spd-say` for spoken replies |
 
 ## i3bar status

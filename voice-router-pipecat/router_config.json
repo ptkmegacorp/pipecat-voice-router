@@ -67,6 +67,15 @@
       "tts": false
     },
     {
+      "name": "close_youtube",
+      "description": "Close any open mpv windows (YouTube playback). No-op if mpv is not open. Silent computer action; no TTS.",
+      "match": ["close youtube", "stop youtube", "close mpv", "stop mpv", "close the video", "stop the video", "stop playing youtube"],
+      "route": "computer_control",
+      "function": "close_youtube",
+      "args": {},
+      "tts": false
+    },
+    {
       "name": "youtube_search",
       "description": "Open a new Firefox/i3 window directly to YouTube search results for the query. Silent computer action; no TTS.",
       "prefix": "open youtube and search for ",

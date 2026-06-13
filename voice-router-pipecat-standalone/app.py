@@ -41,6 +41,13 @@ ROUTING_DIR = ROOT.parent / "voice-router-pipecat"
 if str(ROUTING_DIR) not in sys.path:
     sys.path.insert(0, str(ROUTING_DIR))
 from routing import route_text  # noqa: E402
+from audio_input import (  # noqa: E402
+    INPUT_CHANNELS,
+    INPUT_SAMPLE_RATE,
+    discover_input_device_index,
+    input_device_name,
+    list_input_devices,
+)
 
 STATUS = ROUTING_DIR / "voice_status.py"
 CONFIG = json.loads((ROUTING_DIR / "router_config.json").read_text())
@@ -50,7 +57,6 @@ LOG_FILE = ROOT / "voice-router.log"
 LLM_BASE_URL = os.environ.get("VOICE_ROUTER_LLM_BASE_URL", "")
 LLM_MODEL = os.environ.get("VOICE_ROUTER_LLM_MODEL", "")
 TTS_CMD = os.environ.get("VOICE_ROUTER_TTS_CMD", "")  # e.g. 'spd-say' or 'espeak'
-INPUT_DEVICE_INDEX = os.environ.get("VOICE_ROUTER_INPUT_DEVICE_INDEX", "1")  # USB Composite Device mic on this machine
 MOONSHINE_MODEL = os.environ.get("VOICE_ROUTER_MOONSHINE_MODEL", Model.TINY_STREAMING.value)
 LLM_MAX_TOKENS = int(os.environ.get("VOICE_ROUTER_LLM_MAX_TOKENS", "64"))
 
@@ -138,6 +144,12 @@ def close_firefox():
     subprocess.run(["i3-msg", '[instance="firefox"] kill'], check=False)
 
 
+def close_youtube():
+    # Close all mpv windows (any display) before/instead of leaving stale players open.
+    subprocess.run(["i3-msg", '[class="mpv"] kill'], check=False)
+    subprocess.run(["pkill", "-x", "mpv"], check=False)
+
+
 def list_commands() -> str:
     lines = ["direct routed voice commands:"]
     for r in CONFIG["routes"]:
@@ -200,6 +212,8 @@ def execute(action: dict):
         open_firefox()
     elif fn == "close_firefox":
         close_firefox()
+    elif fn == "close_youtube":
+        close_youtube()
     elif fn == "list_routed_commands":
         speak(list_commands())
     elif fn in {"ask_pig", "ask_local_llm"}:
@@ -320,13 +334,25 @@ async def main():
 
     signal.signal(signal.SIGTERM, shutdown)
 
-    input_device_index = int(INPUT_DEVICE_INDEX) if INPUT_DEVICE_INDEX.strip() else None
-    logger.info(f"Using input_device_index={input_device_index}")
+    input_device_index = discover_input_device_index(logger=logger)
+    device_label = input_device_name(input_device_index)
+    logger.info(f"Using input_device_index={input_device_index} ({device_label})")
+    if input_device_index is None:
+        devices = list_input_devices()
+        device_lines = ", ".join(
+            f"[{d['index']}] {d['name']}{'' if d['opens'] else ' (cannot open)'}"
+            for d in devices
+        ) or "none"
+        msg = f"no working microphone found; devices: {device_lines}"
+        logger.error(msg)
+        set_status("mode", "error")
+        notify(msg)
+        raise SystemExit(1)
     transport = LocalAudioTransport(
         LocalAudioTransportParams(
             audio_in_enabled=True,
-            audio_in_sample_rate=48000,
-            audio_in_channels=1,
+            audio_in_sample_rate=INPUT_SAMPLE_RATE,
+            audio_in_channels=INPUT_CHANNELS,
             input_device_index=input_device_index,
         )
     )

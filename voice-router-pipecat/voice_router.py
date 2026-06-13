@@ -54,6 +54,10 @@ def open_firefox():
 def close_firefox():
     subprocess.run(['i3-msg', '[instance="firefox"] kill'], check=False)
 
+def close_youtube():
+    subprocess.run(['i3-msg', '[class="mpv"] kill'], check=False)
+    subprocess.run(['pkill', '-x', 'mpv'], check=False)
+
 def ask_pig(prompt):
     print(f'ASK_PIG TODO: {prompt}')
     return ''
@@ -71,6 +75,7 @@ def execute_action(action):
     if fn == 'open_youtube_search_url': return open_youtube_search_url(args['query'])
     if fn == 'open_firefox': return open_firefox()
     if fn == 'close_firefox': return close_firefox()
+    if fn == 'close_youtube': return close_youtube()
     if fn == 'ask_pig': return ask_pig(args['prompt'])
     if fn == 'ask_local_llm': return ask_local_llm(args['prompt'])
     raise ValueError(fn)
