@@ -32,6 +32,12 @@ def exit_full_screen():
     subprocess.run(['i3-msg', 'fullscreen', 'disable'])
 
 
+def focus_direction(direction):
+    if direction not in {'left', 'right', 'up', 'down'}:
+        raise ValueError(f'invalid focus direction: {direction}')
+    subprocess.run(['i3-msg', 'focus', direction], check=False)
+
+
 def list_routed_commands():
     lines = ['Directly routed voice commands:']
     for r in CONFIG['routes']:
@@ -58,6 +64,9 @@ def close_youtube():
     subprocess.run(['i3-msg', '[class="mpv"] kill'], check=False)
     subprocess.run(['pkill', '-x', 'mpv'], check=False)
 
+def close_pig_io_overlay():
+    subprocess.run(['i3-msg', '[title="pig-io-overlay"] kill'], check=False)
+
 def ask_pig(prompt):
     print(f'ASK_PIG TODO: {prompt}')
     return ''
@@ -71,11 +80,13 @@ def execute_action(action):
     if fn == 'scroll': return scroll(args['direction'], action.get('context'))
     if fn == 'make_full_screen': return make_full_screen()
     if fn == 'exit_full_screen': return exit_full_screen()
+    if fn == 'focus_direction': return focus_direction(args['direction'])
     if fn == 'list_routed_commands': return list_routed_commands()
     if fn == 'open_youtube_search_url': return open_youtube_search_url(args['query'])
     if fn == 'open_firefox': return open_firefox()
     if fn == 'close_firefox': return close_firefox()
     if fn == 'close_youtube': return close_youtube()
+    if fn == 'close_pig_io_overlay': return close_pig_io_overlay()
     if fn == 'ask_pig': return ask_pig(args['prompt'])
     if fn == 'ask_local_llm': return ask_local_llm(args['prompt'])
     raise ValueError(fn)

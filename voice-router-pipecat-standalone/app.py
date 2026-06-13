@@ -59,6 +59,8 @@ LLM_MODEL = os.environ.get("VOICE_ROUTER_LLM_MODEL", "")
 TTS_CMD = os.environ.get("VOICE_ROUTER_TTS_CMD", "")  # e.g. 'spd-say' or 'espeak'
 MOONSHINE_MODEL = os.environ.get("VOICE_ROUTER_MOONSHINE_MODEL", Model.TINY_STREAMING.value)
 LLM_MAX_TOKENS = int(os.environ.get("VOICE_ROUTER_LLM_MAX_TOKENS", "64"))
+PIG_IO_URL = os.environ.get("VOICE_ROUTER_PIG_IO_URL", "http://127.0.0.1:8765").rstrip("/")
+PIG_IO_TIMEOUT = float(os.environ.get("VOICE_ROUTER_PIG_IO_TIMEOUT", "5"))
 
 
 def discover_llama_server() -> tuple[str, str]:
@@ -150,6 +152,16 @@ def close_youtube():
     subprocess.run(["pkill", "-x", "mpv"], check=False)
 
 
+def focus_direction(direction: str):
+    if direction not in {"left", "right", "up", "down"}:
+        raise ValueError(f"invalid focus direction: {direction}")
+    subprocess.Popen(["i3-msg", "focus", direction])
+
+
+def close_pig_io_overlay():
+    subprocess.run(["i3-msg", '[title="pig-io-overlay"] kill'], check=False)
+
+
 def list_commands() -> str:
     lines = ["direct routed voice commands:"]
     for r in CONFIG["routes"]:
@@ -159,8 +171,34 @@ def list_commands() -> str:
     return "\n".join(lines)
 
 
+def call_pig_io(prompt: str) -> str | None:
+    set_status("mode", "thinking")
+    logger.info(f"Pig fallback using {PIG_IO_URL}")
+    try:
+        resp = requests.post(
+            f"{PIG_IO_URL}/ask",
+            json={
+                "text": prompt,
+                "source": "pipecat_voice",
+                "context": {"focused_window": get_focused_window()},
+            },
+            timeout=PIG_IO_TIMEOUT,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        logger.info(f"pig-io accepted id={data.get('id')} queued={data.get('queued')}")
+        # Event streaming/TTS consumption is intentionally handled in a later step.
+        return "sent to pig"
+    except Exception as e:
+        logger.warning(f"pig-io unavailable, falling back to local llama-server: {e}")
+        return None
+
+
 def call_local_llm(prompt: str) -> str:
     set_status("mode", "thinking")
+    pig_result = call_pig_io(prompt)
+    if pig_result is not None:
+        return pig_result
     base_url, model = discover_llama_server()
     logger.info(f"LLM fallback using {base_url} model={model}")
     try:
@@ -214,6 +252,10 @@ def execute(action: dict):
         close_firefox()
     elif fn == "close_youtube":
         close_youtube()
+    elif fn == "focus_direction":
+        focus_direction(args["direction"])
+    elif fn == "close_pig_io_overlay":
+        close_pig_io_overlay()
     elif fn == "list_routed_commands":
         speak(list_commands())
     elif fn in {"ask_pig", "ask_local_llm"}:

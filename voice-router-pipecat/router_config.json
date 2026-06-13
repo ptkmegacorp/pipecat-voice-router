@@ -6,25 +6,114 @@
     {
       "name": "scroll_down",
       "description": "Scroll the focused window down. Focus-aware: terminal/Pig/Pi may use mouse wheel; browser/editor may use PageDown.",
-      "match": ["scroll down", "go down", "page down", "move down"],
+      "match": [
+        "scroll down",
+        "go down",
+        "page down",
+        "move down"
+      ],
       "route": "computer_control",
       "function": "scroll",
-      "args": {"direction": "down"},
+      "args": {
+        "direction": "down"
+      },
       "tts": false
     },
     {
       "name": "scroll_up",
       "description": "Scroll the focused window up. Focus-aware: terminal/Pig/Pi may use mouse wheel; browser/editor may use PageUp.",
-      "match": ["scroll up", "go up", "page up", "move up"],
+      "match": [
+        "scroll up",
+        "go up",
+        "page up",
+        "move up"
+      ],
       "route": "computer_control",
       "function": "scroll",
-      "args": {"direction": "up"},
+      "args": {
+        "direction": "up"
+      },
+      "tts": false
+    },
+    {
+      "name": "focus_left",
+      "description": "Move i3 window focus left using i3 directional focus.",
+      "match": [
+        "focus left",
+        "move focus left",
+        "move window focus left",
+        "window focus left",
+        "go left"
+      ],
+      "route": "computer_control",
+      "function": "focus_direction",
+      "args": {
+        "direction": "left"
+      },
+      "tts": false
+    },
+    {
+      "name": "focus_right",
+      "description": "Move i3 window focus right using i3 directional focus.",
+      "match": [
+        "focus right",
+        "move focus right",
+        "move window focus right",
+        "window focus right",
+        "go right"
+      ],
+      "route": "computer_control",
+      "function": "focus_direction",
+      "args": {
+        "direction": "right"
+      },
+      "tts": false
+    },
+    {
+      "name": "focus_up",
+      "description": "Move i3 window focus up using i3 directional focus.",
+      "match": [
+        "focus up",
+        "move focus up",
+        "move window focus up",
+        "window focus up",
+        "go up"
+      ],
+      "route": "computer_control",
+      "function": "focus_direction",
+      "args": {
+        "direction": "up"
+      },
+      "tts": false
+    },
+    {
+      "name": "focus_down",
+      "description": "Move i3 window focus down using i3 directional focus.",
+      "match": [
+        "focus down",
+        "move focus down",
+        "move window focus down",
+        "window focus down",
+        "go down"
+      ],
+      "route": "computer_control",
+      "function": "focus_direction",
+      "args": {
+        "direction": "down"
+      },
       "tts": false
     },
     {
       "name": "make_full_screen",
       "description": "Toggle fullscreen for the currently focused i3 window using default i3 behavior.",
-      "match": ["make full screen", "make fullscreen", "fullscreen", "full screen", "toggle full screen", "toggle fullscreen"],
+      "match": [
+        "make full screen",
+        "make fullscreen",
+        "fullscreen",
+        "full screen",
+        "toggle full screen",
+        "toggle fullscreen"
+      ],
       "route": "computer_control",
       "function": "make_full_screen",
       "args": {},
@@ -33,7 +122,14 @@
     {
       "name": "exit_full_screen",
       "description": "Exit fullscreen for the currently focused i3 window using default i3 behavior.",
-      "match": ["exit fullscreen", "exit full screen", "leave fullscreen", "leave full screen", "disable fullscreen", "disable full screen"],
+      "match": [
+        "exit fullscreen",
+        "exit full screen",
+        "leave fullscreen",
+        "leave full screen",
+        "disable fullscreen",
+        "disable full screen"
+      ],
       "route": "computer_control",
       "function": "exit_full_screen",
       "args": {},
@@ -42,7 +138,13 @@
     {
       "name": "list_routed_commands",
       "description": "List all directly routed voice commands and what they do.",
-      "match": ["list all routed commands", "list routed commands", "what commands can i say", "show routed commands", "show voice commands"],
+      "match": [
+        "list all routed commands",
+        "list routed commands",
+        "what commands can i say",
+        "show routed commands",
+        "show voice commands"
+      ],
       "route": "router_help",
       "function": "list_routed_commands",
       "args": {},
@@ -51,7 +153,12 @@
     {
       "name": "open_firefox",
       "description": "Open a new Firefox window. Silent computer action; no TTS.",
-      "match": ["open firefox", "launch firefox", "start firefox", "new firefox window"],
+      "match": [
+        "open firefox",
+        "launch firefox",
+        "start firefox",
+        "new firefox window"
+      ],
       "route": "browser_automation",
       "function": "open_firefox",
       "args": {},
@@ -60,7 +167,13 @@
     {
       "name": "close_firefox",
       "description": "Close open Firefox windows via i3. No-op if Firefox is not open. Silent computer action; no TTS.",
-      "match": ["close firefox", "quit firefox", "exit firefox", "close the firefox window", "close firefox window"],
+      "match": [
+        "close firefox",
+        "quit firefox",
+        "exit firefox",
+        "close the firefox window",
+        "close firefox window"
+      ],
       "route": "browser_automation",
       "function": "close_firefox",
       "args": {},
@@ -69,9 +182,33 @@
     {
       "name": "close_youtube",
       "description": "Close any open mpv windows (YouTube playback). No-op if mpv is not open. Silent computer action; no TTS.",
-      "match": ["close youtube", "stop youtube", "close mpv", "stop mpv", "close the video", "stop the video", "stop playing youtube"],
+      "match": [
+        "close youtube",
+        "stop youtube",
+        "close mpv",
+        "stop mpv",
+        "close the video",
+        "stop the video",
+        "stop playing youtube"
+      ],
       "route": "computer_control",
       "function": "close_youtube",
+      "args": {},
+      "tts": false
+    },
+    {
+      "name": "close_pig_io_overlay",
+      "description": "Close the floating pig-io voice fallback overlay window.",
+      "match": [
+        "close overlay",
+        "hide overlay",
+        "close pig overlay",
+        "hide pig overlay",
+        "close voice overlay",
+        "hide voice overlay"
+      ],
+      "route": "computer_control",
+      "function": "close_pig_io_overlay",
       "args": {},
       "tts": false
     },
