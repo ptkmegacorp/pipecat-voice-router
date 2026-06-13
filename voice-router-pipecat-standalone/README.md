@@ -9,15 +9,18 @@ local microphone
 → Pipecat LocalAudioTransport
 → Silero VAD
 → Moonshine STT
-→ deterministic router
+→ exact + fuzzy router
 → i3/browser action OR local LLM fallback
 ```
 
 ## Location
 
 ```text
-/home/bot/voice-router-pipecat-standalone
+/home/bot/pipecat-voice-router/voice-router-pipecat-standalone
+/home/bot/pipecat-voice-router/voice-router-pipecat
 ```
+
+GitHub: https://github.com/ptkmegacorp/pipecat-voice-router
 
 Pipecat source checkout:
 
@@ -28,15 +31,15 @@ Pipecat source checkout:
 Python venv:
 
 ```text
-/home/bot/voice-router-pipecat-standalone/.venv
+/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/.venv
 ```
 
 ## Start / stop
 
 ```bash
-/home/bot/voice-router-pipecat-standalone/start.sh
-/home/bot/voice-router-pipecat-standalone/stop.sh
-/home/bot/voice-router-pipecat-standalone/status.sh
+/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/start.sh
+/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/stop.sh
+/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/status.sh
 ```
 
 Rofi menu:
@@ -56,7 +59,7 @@ Options:
 ## Logs
 
 ```text
-/home/bot/voice-router-pipecat-standalone/voice-router.log
+/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/voice-router.log
 ```
 
 ## Routed commands
@@ -64,7 +67,7 @@ Options:
 Uses route config from:
 
 ```text
-/home/bot/voice-router-pipecat/router_config.json
+/home/bot/pipecat-voice-router/voice-router-pipecat/router_config.json
 ```
 
 Current direct routes:
@@ -121,7 +124,7 @@ The app updates:
 through:
 
 ```text
-/home/bot/voice-router-pipecat/voice_status.py
+/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py
 ```
 
 So i3bar shows:
