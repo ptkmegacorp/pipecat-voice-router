@@ -1,0 +1,364 @@
+#!/usr/bin/env python3
+"""Standalone Pipecat voice router.
+
+Flow:
+  local mic -> Silero VAD -> Moonshine STT -> deterministic router -> action or local LLM
+"""
+import asyncio
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+import audioop
+import urllib.parse
+from pathlib import Path
+
+import requests
+from loguru import logger
+
+from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.vad.vad_analyzer import VADParams
+from pipecat.frames.frames import (
+    Frame,
+    InputAudioRawFrame,
+    TranscriptionFrame,
+    InterimTranscriptionFrame,
+    VADUserStartedSpeakingFrame,
+    VADUserStoppedSpeakingFrame,
+)
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.worker import PipelineWorker
+from pipecat.processors.audio.vad_processor import VADProcessor
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.services.moonshine.stt import MoonshineSTTService, MoonshineSTTSettings, Model
+from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
+from pipecat.workers.runner import WorkerRunner
+
+ROOT = Path(__file__).resolve().parent
+ROUTING_DIR = ROOT.parent / "voice-router-pipecat"
+if str(ROUTING_DIR) not in sys.path:
+    sys.path.insert(0, str(ROUTING_DIR))
+from routing import route_text  # noqa: E402
+
+STATUS = ROUTING_DIR / "voice_status.py"
+CONFIG = json.loads((ROUTING_DIR / "router_config.json").read_text())
+PID_FILE = ROOT / "voice-router.pid"
+LOG_FILE = ROOT / "voice-router.log"
+
+LLM_BASE_URL = os.environ.get("VOICE_ROUTER_LLM_BASE_URL", "")
+LLM_MODEL = os.environ.get("VOICE_ROUTER_LLM_MODEL", "")
+TTS_CMD = os.environ.get("VOICE_ROUTER_TTS_CMD", "")  # e.g. 'spd-say' or 'espeak'
+INPUT_DEVICE_INDEX = os.environ.get("VOICE_ROUTER_INPUT_DEVICE_INDEX", "1")  # USB Composite Device mic on this machine
+MOONSHINE_MODEL = os.environ.get("VOICE_ROUTER_MOONSHINE_MODEL", Model.TINY_STREAMING.value)
+LLM_MAX_TOKENS = int(os.environ.get("VOICE_ROUTER_LLM_MAX_TOKENS", "64"))
+
+
+def discover_llama_server() -> tuple[str, str]:
+    """Use the currently running local llama-server.
+
+    Priority:
+    1. explicit VOICE_ROUTER_LLM_BASE_URL / VOICE_ROUTER_LLM_MODEL
+    2. scan known local llama.cpp ports and use the first /v1/models response
+    """
+    explicit_base = os.environ.get("VOICE_ROUTER_LLM_BASE_URL")
+    explicit_model = os.environ.get("VOICE_ROUTER_LLM_MODEL")
+    candidates = [explicit_base] if explicit_base else []
+    candidates += [
+        "http://127.0.0.1:8091/v1",  # Pig/local Gemma default on this machine
+        "http://127.0.0.1:8090/v1",  # Pi audio baseline
+        "http://127.0.0.1:8088/v1",  # Qwen text recipe
+        "http://127.0.0.1:8080/v1",
+    ]
+    seen = set()
+    for base in [c for c in candidates if c and not (c in seen or seen.add(c))]:
+        try:
+            r = requests.get(f"{base}/models", timeout=2)
+            r.raise_for_status()
+            data = r.json()
+            models = data.get("data") or data.get("models") or []
+            if not models:
+                continue
+            first = models[0]
+            model = explicit_model or first.get("id") or first.get("model") or first.get("name") or "local"
+            return base, model
+        except Exception:
+            continue
+    return explicit_base or "http://127.0.0.1:8091/v1", explicit_model or "local"
+
+logger.remove()
+logger.add(sys.stderr, level=os.environ.get("VOICE_ROUTER_LOG_LEVEL", "INFO"))
+logger.add(str(LOG_FILE), rotation="1 MB", retention=5, level="DEBUG")
+
+
+def set_status(key: str, value: str):
+    subprocess.run([str(STATUS), key, value], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+
+def notify(msg: str):
+    logger.info(msg)
+    try:
+        subprocess.run(["notify-send", "Pipecat voice", msg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    except FileNotFoundError:
+        pass
+
+
+def get_focused_window():
+    try:
+        name = subprocess.check_output(["xdotool", "getactivewindow", "getwindowname"], text=True).strip()
+        klass = subprocess.check_output(["xdotool", "getactivewindow", "getwindowclassname"], text=True).strip()
+        return {"name": name, "class": klass}
+    except Exception:
+        return {"name": "", "class": ""}
+
+
+def scroll(direction: str):
+    win = get_focused_window()
+    title = (win.get("name") or "").lower()
+    klass = (win.get("class") or "").lower()
+    if "terminal" in klass or "pig" in title or "pi" in title:
+        key = "shift+Down" if direction == "down" else "shift+Up"
+        subprocess.Popen(["xdotool", "key", "--repeat", "5", key])
+    else:
+        subprocess.Popen(["xdotool", "key", "Page_Down" if direction == "down" else "Page_Up"])
+
+
+def open_youtube(query: str):
+    url = "https://www.youtube.com/results?search_query=" + urllib.parse.quote_plus(query)
+    subprocess.Popen(["i3-msg", "exec", f"firefox --new-window {url}"])
+
+
+def open_firefox():
+    subprocess.Popen(["i3-msg", "exec", "firefox --new-window about:blank"])
+
+
+def close_firefox():
+    # Firefox WM_CLASS is typically Navigator/firefox on Linux; kill all matching i3 windows.
+    subprocess.run(["i3-msg", '[instance="firefox"] kill'], check=False)
+
+
+def list_commands() -> str:
+    lines = ["direct routed voice commands:"]
+    for r in CONFIG["routes"]:
+        examples = r.get("match") or [r.get("prefix", "").strip() + "..."]
+        lines.append(f"- {', '.join(examples)}")
+    lines.append("anything else goes to the main local LLM")
+    return "\n".join(lines)
+
+
+def call_local_llm(prompt: str) -> str:
+    set_status("mode", "thinking")
+    base_url, model = discover_llama_server()
+    logger.info(f"LLM fallback using {base_url} model={model}")
+    try:
+        resp = requests.post(
+            f"{base_url}/chat/completions",
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": "You are a concise voice assistant. Answer briefly for speech."},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.4,
+                "max_tokens": LLM_MAX_TOKENS,
+            },
+            timeout=120,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        return f"local LLM error: {e}"
+
+
+def speak(text: str):
+    if not text:
+        return
+    print(text, flush=True)
+    if TTS_CMD:
+        set_status("mode", "speaking")
+        subprocess.run([TTS_CMD, text], check=False)
+
+
+def execute(action: dict):
+    if action.get("match_method") == "fuzzy":
+        logger.info(
+            f"fuzzy route score={action.get('match_score')} phrase={action.get('match_phrase')!r} text={action.get('text')!r}"
+        )
+    logger.info(f"route={action.get('route')} function={action.get('function')} text={action.get('text')!r}")
+    fn = action.get("function")
+    args = action.get("args", {})
+    if fn == "scroll":
+        scroll(args["direction"])
+    elif fn == "make_full_screen":
+        subprocess.Popen(["i3-msg", "fullscreen", "toggle"])
+    elif fn == "exit_full_screen":
+        subprocess.Popen(["i3-msg", "fullscreen", "disable"])
+    elif fn == "open_youtube_search_url":
+        open_youtube(args["query"])
+    elif fn == "open_firefox":
+        open_firefox()
+    elif fn == "close_firefox":
+        close_firefox()
+    elif fn == "list_routed_commands":
+        speak(list_commands())
+    elif fn in {"ask_pig", "ask_local_llm"}:
+        answer = call_local_llm(args.get("prompt", action.get("text", "")))
+        speak(answer)
+    else:
+        answer = call_local_llm(action.get("text", ""))
+        speak(answer)
+    if not action.get("tts"):
+        set_status("mode", "idle")
+
+
+class AudioDebugProcessor(FrameProcessor):
+    def __init__(self):
+        super().__init__()
+        self._last_log = 0.0
+        self._peak_rms = 0
+        self._frames = 0
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, InputAudioRawFrame):
+            self._frames += 1
+            try:
+                rms = audioop.rms(frame.audio, 2)
+                mx = audioop.max(frame.audio, 2)
+                self._peak_rms = max(self._peak_rms, rms)
+            except Exception:
+                rms = mx = 0
+            now = time.monotonic()
+            if now - self._last_log >= 1.0:
+                logger.info(
+                    f"audio input frames={self._frames}/s rms={rms} peak_rms={self._peak_rms} max={mx} sr={frame.sample_rate} ch={frame.num_channels} bytes={len(frame.audio)}"
+                )
+                self._frames = 0
+                self._peak_rms = 0
+                self._last_log = now
+        await self.push_frame(frame, direction)
+
+
+class ResampleTo16kProcessor(FrameProcessor):
+    """Resample local USB mic 48k mono S16 frames to 16k for Silero/Moonshine."""
+
+    def __init__(self):
+        super().__init__()
+        self._state = None
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, InputAudioRawFrame) and frame.sample_rate != 16000:
+            converted, self._state = audioop.ratecv(
+                frame.audio, 2, frame.num_channels, frame.sample_rate, 16000, self._state
+            )
+            out = InputAudioRawFrame(converted, 16000, frame.num_channels)
+            out.pts = frame.pts
+            out.transport_source = frame.transport_source
+            await self.push_frame(out, direction)
+        else:
+            await self.push_frame(frame, direction)
+
+
+class VADStatusProcessor(FrameProcessor):
+    def __init__(self):
+        super().__init__()
+        self._last_vad_stop = 0.0
+
+    async def _idle_if_no_transcript(self, vad_stop_time: float):
+        await asyncio.sleep(4.0)
+        if self._last_vad_stop == vad_stop_time:
+            logger.info("No transcription after VAD stop; returning indicator to idle")
+            set_status("mode", "idle")
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, VADUserStartedSpeakingFrame):
+            set_status("hearing", "on")
+            set_status("mode", "listening")
+            logger.info("VAD: user started speaking")
+        elif isinstance(frame, VADUserStoppedSpeakingFrame):
+            set_status("hearing", "off")
+            set_status("mode", "thinking")
+            logger.info("VAD: user stopped speaking; waiting for Pipecat MoonshineSTTService")
+            self._last_vad_stop = time.monotonic()
+            asyncio.create_task(self._idle_if_no_transcript(self._last_vad_stop))
+        await self.push_frame(frame, direction)
+
+
+class VoiceRouterProcessor(FrameProcessor):
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, InterimTranscriptionFrame):
+            logger.debug(f"interim={frame.text!r}")
+        elif isinstance(frame, TranscriptionFrame):
+            text = frame.text.strip()
+            logger.info(f"transcription frame={text!r}")
+            if text:
+                notify(f"heard: {text}")
+                execute(route_text(text, {"focused_window": get_focused_window()}))
+                set_status("mode", "idle")
+        else:
+            await self.push_frame(frame, direction)
+
+
+async def main():
+    PID_FILE.write_text(str(os.getpid()))
+    set_status("enabled", "on")
+    set_status("mode", "idle")
+    base_url, model = discover_llama_server()
+    notify(f"standalone Pipecat voice router started; LLM fallback: {base_url} model={model}")
+
+    def shutdown(*_):
+        set_status("enabled", "off")
+        try:
+            PID_FILE.unlink()
+        except FileNotFoundError:
+            pass
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, shutdown)
+
+    input_device_index = int(INPUT_DEVICE_INDEX) if INPUT_DEVICE_INDEX.strip() else None
+    logger.info(f"Using input_device_index={input_device_index}")
+    transport = LocalAudioTransport(
+        LocalAudioTransportParams(
+            audio_in_enabled=True,
+            audio_in_sample_rate=48000,
+            audio_in_channels=1,
+            input_device_index=input_device_index,
+        )
+    )
+    audio_debug = AudioDebugProcessor()
+    resampler = ResampleTo16kProcessor()
+    vad = VADProcessor(
+        vad_analyzer=SileroVADAnalyzer(
+            params=VADParams(
+                confidence=float(os.environ.get("VOICE_ROUTER_VAD_CONFIDENCE", "0.25")),
+                start_secs=float(os.environ.get("VOICE_ROUTER_VAD_START_SECS", "0.08")),
+                stop_secs=float(os.environ.get("VOICE_ROUTER_VAD_STOP_SECS", "0.9")),
+                min_volume=float(os.environ.get("VOICE_ROUTER_VAD_MIN_VOLUME", "0.001")),
+            )
+        )
+    )
+    vad_status = VADStatusProcessor()
+    stt = MoonshineSTTService(settings=MoonshineSTTSettings(model=MOONSHINE_MODEL))
+    logger.info(f"Moonshine STT model={MOONSHINE_MODEL}")
+    router = VoiceRouterProcessor()
+    pipeline = Pipeline([transport.input(), audio_debug, resampler, vad, vad_status, stt, router])
+    worker = PipelineWorker(pipeline)
+    runner = WorkerRunner(handle_sigint=True)
+    await runner.add_workers(worker)
+    try:
+        await runner.run()
+    finally:
+        set_status("enabled", "off")
+        try:
+            PID_FILE.unlink()
+        except FileNotFoundError:
+            pass
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -1,0 +1,94 @@
+{
+  "framework": "pipecat",
+  "stt_notes": "Moonshine/Moon-whatever small streaming STT is a good candidate, but STT model is not locked yet.",
+  "tts_default": true,
+  "routes": [
+    {
+      "name": "scroll_down",
+      "description": "Scroll the focused window down. Focus-aware: terminal/Pig/Pi may use mouse wheel; browser/editor may use PageDown.",
+      "match": ["scroll down", "go down", "page down", "move down"],
+      "route": "computer_control",
+      "function": "scroll",
+      "args": {"direction": "down"},
+      "tts": false
+    },
+    {
+      "name": "scroll_up",
+      "description": "Scroll the focused window up. Focus-aware: terminal/Pig/Pi may use mouse wheel; browser/editor may use PageUp.",
+      "match": ["scroll up", "go up", "page up", "move up"],
+      "route": "computer_control",
+      "function": "scroll",
+      "args": {"direction": "up"},
+      "tts": false
+    },
+    {
+      "name": "make_full_screen",
+      "description": "Toggle fullscreen for the currently focused i3 window using default i3 behavior.",
+      "match": ["make full screen", "make fullscreen", "fullscreen", "full screen", "toggle full screen", "toggle fullscreen"],
+      "route": "computer_control",
+      "function": "make_full_screen",
+      "args": {},
+      "tts": false
+    },
+    {
+      "name": "exit_full_screen",
+      "description": "Exit fullscreen for the currently focused i3 window using default i3 behavior.",
+      "match": ["exit fullscreen", "exit full screen", "leave fullscreen", "leave full screen", "disable fullscreen", "disable full screen"],
+      "route": "computer_control",
+      "function": "exit_full_screen",
+      "args": {},
+      "tts": false
+    },
+    {
+      "name": "list_routed_commands",
+      "description": "List all directly routed voice commands and what they do.",
+      "match": ["list all routed commands", "list routed commands", "what commands can i say", "show routed commands", "show voice commands"],
+      "route": "router_help",
+      "function": "list_routed_commands",
+      "args": {},
+      "tts": true
+    },
+    {
+      "name": "open_firefox",
+      "description": "Open a new Firefox window. Silent computer action; no TTS.",
+      "match": ["open firefox", "launch firefox", "start firefox", "new firefox window"],
+      "route": "browser_automation",
+      "function": "open_firefox",
+      "args": {},
+      "tts": false
+    },
+    {
+      "name": "close_firefox",
+      "description": "Close open Firefox windows via i3. No-op if Firefox is not open. Silent computer action; no TTS.",
+      "match": ["close firefox", "quit firefox", "exit firefox", "close the firefox window", "close firefox window"],
+      "route": "browser_automation",
+      "function": "close_firefox",
+      "args": {},
+      "tts": false
+    },
+    {
+      "name": "youtube_search",
+      "description": "Open a new Firefox/i3 window directly to YouTube search results for the query. Silent computer action; no TTS.",
+      "prefix": "open youtube and search for ",
+      "route": "browser_automation",
+      "function": "open_youtube_search_url",
+      "query_arg": "query",
+      "tts": false
+    },
+    {
+      "name": "research_tell_me",
+      "description": "Route to Pig/main LLM for web/research answer, then speak the result with TTS.",
+      "prefix": "search for ",
+      "contains": "tell me about",
+      "route": "main_llm_research",
+      "function": "ask_pig",
+      "tts": true
+    }
+  ],
+  "fallback": {
+    "route": "main_llm",
+    "function": "ask_pig",
+    "tts": true,
+    "description": "If it is not one of the directly routed commands, send it to the main LLM/Pig."
+  }
+}

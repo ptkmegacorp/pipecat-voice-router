@@ -1,0 +1,19 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Runtime
+voice-router.log
+voice-router.pid
+*.log
+
+# Local caches
+.cache/
+
+# Editor
+.idea/
+.vscode/
+*.swp
