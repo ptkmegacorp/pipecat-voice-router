@@ -14,13 +14,42 @@ def get_focused_window():
     except Exception:
         return {'name': '', 'class': ''}
 
+def find_pig_overlay_window():
+    try:
+        out = subprocess.check_output(
+            ['xdotool', 'search', '--onlyvisible', '--name', '^pig-io-overlay$'],
+            text=True,
+        ).strip()
+        ids = [wid for wid in out.splitlines() if wid.strip()]
+        return ids[-1] if ids else None
+    except Exception:
+        return None
+
+
+def scroll_urxvt_window(wid, direction, repeat=4):
+    key = 'shift+Next' if direction == 'down' else 'shift+Prior'
+    subprocess.run(
+        ['xdotool', 'key', '--window', wid, '--delay', '40', '--repeat', str(repeat), key],
+        check=False,
+    )
+
+
 def scroll(direction, context=None):
+    overlay_wid = find_pig_overlay_window()
+    if overlay_wid:
+        scroll_urxvt_window(overlay_wid, direction)
+        return
+
     win = (context or {}).get('focused_window') or get_focused_window()
     klass, title = (win.get('class') or '').lower(), (win.get('name') or '').lower()
-    if 'terminal' in klass or 'pig' in title or 'pi' in title:
-        subprocess.run(['xdotool','click','--repeat','5','5' if direction == 'down' else '4'])
-    else:
-        subprocess.run(['xdotool','key','Page_Down' if direction == 'down' else 'Page_Up'])
+    if 'urxvt' in klass or 'rxvt' in klass or 'terminal' in klass or 'pig' in title or 'pi' in title:
+        try:
+            wid = subprocess.check_output(['xdotool', 'getactivewindow'], text=True).strip()
+            scroll_urxvt_window(wid, direction)
+        except Exception:
+            pass
+        return
+    subprocess.run(['xdotool', 'key', 'Page_Down' if direction == 'down' else 'Page_Up'])
 
 def make_full_screen():
     # Default i3 behavior: `fullscreen toggle` on the focused container.
@@ -64,6 +93,11 @@ def close_youtube():
     subprocess.run(['i3-msg', '[class="mpv"] kill'], check=False)
     subprocess.run(['pkill', '-x', 'mpv'], check=False)
 
+def focus_pig_io_overlay():
+    subprocess.run(['/home/bot/pig-io/overlay.sh', 'show'], check=False)
+    subprocess.Popen(['i3-msg', '[title="^pig-io-overlay$"]', 'focus'])
+
+
 def open_pig_io_overlay():
     subprocess.Popen(['/home/bot/pig-io/overlay.sh', 'show'])
 
@@ -91,6 +125,7 @@ def execute_action(action):
     if fn == 'close_firefox': return close_firefox()
     if fn == 'close_youtube': return close_youtube()
     if fn == 'open_pig_io_overlay': return open_pig_io_overlay()
+    if fn == 'focus_pig_io_overlay': return focus_pig_io_overlay()
     if fn == 'close_pig_io_overlay': return close_pig_io_overlay()
     if fn == 'ask_pig': return ask_pig(args['prompt'])
     if fn == 'ask_local_llm': return ask_local_llm(args['prompt'])

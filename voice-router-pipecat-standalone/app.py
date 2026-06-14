@@ -121,15 +121,47 @@ def get_focused_window():
         return {"name": "", "class": ""}
 
 
+def find_pig_overlay_window():
+    try:
+        out = subprocess.check_output(
+            ["xdotool", "search", "--onlyvisible", "--name", "^pig-io-overlay$"],
+            text=True,
+        ).strip()
+        ids = [wid for wid in out.splitlines() if wid.strip()]
+        return ids[-1] if ids else None
+    except Exception:
+        return None
+
+
+def scroll_urxvt_window(wid: str, direction: str, repeat: int = 4):
+    # urxvt default scrollback: Shift+Page_Up/Page_Down (Prior/Next).
+    key = "shift+Next" if direction == "down" else "shift+Prior"
+    subprocess.run(
+        ["xdotool", "key", "--window", wid, "--delay", "40", "--repeat", str(repeat), key],
+        check=False,
+    )
+
+
 def scroll(direction: str):
+    overlay_wid = find_pig_overlay_window()
+    if overlay_wid:
+        scroll_urxvt_window(overlay_wid, direction)
+        return
+
     win = get_focused_window()
     title = (win.get("name") or "").lower()
     klass = (win.get("class") or "").lower()
-    if "terminal" in klass or "pig" in title or "pi" in title:
-        key = "shift+Down" if direction == "down" else "shift+Up"
-        subprocess.Popen(["xdotool", "key", "--repeat", "5", key])
-    else:
-        subprocess.Popen(["xdotool", "key", "Page_Down" if direction == "down" else "Page_Up"])
+    if "urxvt" in klass or "rxvt" in klass or "terminal" in klass or "pig" in title or "pi" in title:
+        wid = None
+        try:
+            wid = subprocess.check_output(["xdotool", "getactivewindow"], text=True).strip()
+        except Exception:
+            pass
+        if wid:
+            scroll_urxvt_window(wid, direction)
+        return
+
+    subprocess.Popen(["xdotool", "key", "Page_Down" if direction == "down" else "Page_Up"])
 
 
 def open_youtube(query: str):
@@ -156,6 +188,11 @@ def focus_direction(direction: str):
     if direction not in {"left", "right", "up", "down"}:
         raise ValueError(f"invalid focus direction: {direction}")
     subprocess.Popen(["i3-msg", "focus", direction])
+
+
+def focus_pig_io_overlay():
+    subprocess.run(["/home/bot/pig-io/overlay.sh", "show"], check=False)
+    subprocess.Popen(["i3-msg", '[title="^pig-io-overlay$"]', "focus"])
 
 
 def open_pig_io_overlay():
@@ -270,6 +307,8 @@ def execute(action: dict):
         focus_direction(args["direction"])
     elif fn == "open_pig_io_overlay":
         open_pig_io_overlay()
+    elif fn == "focus_pig_io_overlay":
+        focus_pig_io_overlay()
     elif fn == "close_pig_io_overlay":
         close_pig_io_overlay()
     elif fn == "list_routed_commands":

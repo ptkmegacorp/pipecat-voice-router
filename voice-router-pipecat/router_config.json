@@ -5,7 +5,7 @@
   "routes": [
     {
       "name": "scroll_down",
-      "description": "Scroll the focused window down. Focus-aware: terminal/Pig/Pi may use mouse wheel; browser/editor may use PageDown.",
+      "description": "Scroll down. If the pig-io overlay is visible, scroll its urxvt scrollback; otherwise PageDown on the focused window.",
       "match": [
         "scroll down",
         "go down",
@@ -21,7 +21,7 @@
     },
     {
       "name": "scroll_up",
-      "description": "Scroll the focused window up. Focus-aware: terminal/Pig/Pi may use mouse wheel; browser/editor may use PageUp.",
+      "description": "Scroll up. If the pig-io overlay is visible, scroll its urxvt scrollback; otherwise PageUp on the focused window.",
       "match": [
         "scroll up",
         "go up",
@@ -213,6 +213,21 @@
       ],
       "route": "computer_control",
       "function": "open_pig_io_overlay",
+      "args": {},
+      "tts": false
+    },
+    {
+      "name": "focus_pig_io_overlay",
+      "description": "Show and focus the pig-io voice overlay window.",
+      "match": [
+        "focus pig",
+        "focus peg",
+        "focus overlay",
+        "focus pig overlay",
+        "focus voice overlay"
+      ],
+      "route": "computer_control",
+      "function": "focus_pig_io_overlay",
       "args": {},
       "tts": false
     },
