@@ -37,11 +37,21 @@ pip install requests loguru
 
 ## Run
 
+pig-io runs always-on via systemd. Pipecat is on-demand.
+
 ```bash
+# pig-io (enabled at boot)
+systemctl --user status pig-io
+
+# pipecat (start when you want voice)
+systemctl --user start pipecat-voice
+# or wrappers:
 voice-router-pipecat-standalone/start.sh
 voice-router-pipecat-standalone/stop.sh
 voice-router-pipecat-standalone/status.sh
 ```
+
+Logs: `journalctl --user -u pipecat-voice -f`
 
 Rofi menu (if configured): `Mod+Shift+v`
 

@@ -1,0 +1,23 @@
+[Unit]
+Description=Pipecat standalone voice router
+Documentation=file:/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/README.md
+After=pig-io.service llama-server.service network-online.target
+Wants=pig-io.service
+PartOf=voice-stack.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/bot/pipecat-voice-router/voice-router-pipecat-standalone
+Environment=HOME=/home/bot
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/.venv/bin/python app.py
+ExecStartPost=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py enabled on
+ExecStartPost=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py mode idle
+ExecStopPost=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py enabled off
+Restart=on-failure
+RestartSec=5
+Environment=VOICE_ROUTER_INPUT_DEVICE_MATCH=USB Composite Device,USB Audio
+Environment=VOICE_ROUTER_INPUT_DEVICE_EXCLUDE=hdmi,nvidia,monitor,spdif
+
+[Install]
+WantedBy=default.target

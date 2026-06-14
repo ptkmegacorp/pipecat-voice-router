@@ -34,7 +34,26 @@ Python venv:
 /home/bot/pipecat-voice-router/voice-router-pipecat-standalone/.venv
 ```
 
+## Service stack (systemd)
+
+```text
+llama-server.service          always on
+    └── pig-io.service        always on
+            └── pipecat-voice.service   this app — on-demand only
+```
+
+| Service | Boot | Managed by |
+|---------|------|------------|
+| **llama-server** | enabled | `systemctl --user` |
+| **pig-io** | enabled | `systemctl --user` |
+| **pipecat** (this app) | **on-demand** | `systemctl --user start pipecat-voice` |
+| **overlay** | i3 login | `overlay.sh` (GUI, not systemd) |
+
+**pipecat does not need the overlay.** It talks to pig-io over HTTP.
+
 ## Start / stop
+
+On-demand via rofi (`Mod+Shift+v`) or wrappers:
 
 ```bash
 /home/bot/pipecat-voice-router/voice-router-pipecat-standalone/start.sh
@@ -42,28 +61,15 @@ Python venv:
 /home/bot/pipecat-voice-router/voice-router-pipecat-standalone/status.sh
 ```
 
-## What depends on what
-
-**pipecat does not need the overlay.** It talks to pig-io over HTTP.
-
-| Service | Requires |
-|---------|----------|
-| **llama-server** | _(Gemma on :8091 — used by pig-io; pipecat fallback only if pig-io down)_ |
-| **pig-io** | llama-server |
-| **pipecat** (this app) | pig-io on :8765 for `ask_pig` / LLM fallback routes; PipeWire mic |
-| **overlay** | pig-io only _(optional display — hide/show, not required for voice)_ |
-
-**Start order:**
+Equivalent systemd:
 
 ```bash
-# 1. llama-server (:8091)
-
-# 2. pig-io (:8765) — pipecat POSTs /ask here
-cd ~/pig-io && ./stop.sh && ./start.sh
-
-# 3. pipecat (this)
-cd ~/pipecat-voice-router/voice-router-pipecat-standalone && ./stop.sh && ./start.sh
+systemctl --user start pipecat-voice    # also ensures pig-io is up
+systemctl --user stop pipecat-voice
+systemctl --user status pipecat-voice
 ```
+
+Pipecat is **not** `enable`d at boot. pig-io is.
 
 **Verify pipecat → pig-io path** (with both running):
 
@@ -83,17 +89,18 @@ Mod+Shift+v
 
 Options:
 
-- start standalone pipecat voice
-- stop standalone pipecat voice
-- restart standalone pipecat voice
+- start / stop / restart standalone pipecat voice
 - show status
-- tail log
+- tail log (`journalctl --user -u pipecat-voice -f`)
 
 ## Logs
 
-```text
-/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/voice-router.log
+```bash
+journalctl --user -u pipecat-voice -f
+journalctl --user -u pig-io -f
 ```
+
+Legacy file (no longer written): `voice-router.log`
 
 ## Routed commands
 
@@ -132,6 +139,8 @@ export VOICE_ROUTER_LLM_BASE_URL=http://127.0.0.1:8090/v1
 export VOICE_ROUTER_LLM_MODEL=your-model-name
 ```
 
+Set overrides in `~/.config/systemd/user/pipecat-voice.service.d/override.conf` for persistence.
+
 ## TTS
 
 By default, TTS command is blank. The app prints LLM answers to the log/stdout.
@@ -144,7 +153,7 @@ export VOICE_ROUTER_TTS_CMD=spd-say
 export VOICE_ROUTER_TTS_CMD=espeak
 ```
 
-Then start the app.
+Then restart: `systemctl --user restart pipecat-voice`
 
 ## i3bar status
 
@@ -177,4 +186,21 @@ If microphone capture fails, check devices:
 ```bash
 arecord -l
 pactl list short sources
+```
+
+## Unit file
+
+Install into `~/.config/systemd/user/`:
+
+```bash
+ln -sf ~/pipecat-voice-router/systemd/pipecat-voice.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+# on-demand only — do not enable at boot:
+# systemctl --user start pipecat-voice
+```
+
+Source copy in this repo:
+
+```text
+systemd/pipecat-voice.service
 ```

@@ -2,20 +2,15 @@
 set -euo pipefail
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROUTER_DIR="$(cd "$APP_DIR/../voice-router-pipecat" && pwd)"
-cd "$APP_DIR"
-PID_FILE="$PWD/voice-router.pid"
-if [ -s "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-  echo "running pid $(cat "$PID_FILE")"
+
+state="$(systemctl --user is-active pipecat-voice.service 2>/dev/null || echo inactive)"
+echo "pipecat-voice.service: $state"
+if systemctl --user is-enabled pipecat-voice.service >/dev/null 2>&1; then
+  echo "boot: enabled"
 else
-  if [ -s "$PID_FILE" ]; then
-    echo "not running (stale pid $(cat "$PID_FILE"))"
-    rm -f "$PID_FILE"
-    "$ROUTER_DIR/voice_status.py" enabled off
-  else
-    echo "not running"
-    "$ROUTER_DIR/voice_status.py" enabled off
-  fi
+  echo "boot: on-demand (not enabled at login)"
 fi
+
 "$ROUTER_DIR/voice_status.py" show
 if [ -r "$HOME/.cache/pipecat-voice/last-input-device.json" ]; then
   python3 - <<'PY' "$HOME/.cache/pipecat-voice/last-input-device.json"
