@@ -65,12 +65,11 @@ def close_youtube():
     subprocess.run(['pkill', '-x', 'mpv'], check=False)
 
 def open_pig_io_overlay():
-    subprocess.Popen(['/home/bot/pig-io/overlay.sh'])
+    subprocess.Popen(['/home/bot/pig-io/overlay.sh', 'show'])
 
 
 def close_pig_io_overlay():
-    subprocess.run(['pkill', '-F', '/home/bot/.cache/pig-io/overlay.pid'], check=False)
-    subprocess.run(['pkill', '-f', 'rofi -e pig-io voice'], check=False)
+    subprocess.run(['/home/bot/pig-io/overlay.sh', 'hide'], check=False)
 
 def ask_pig(prompt):
     print(f'ASK_PIG TODO: {prompt}')

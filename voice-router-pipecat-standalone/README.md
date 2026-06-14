@@ -51,7 +51,7 @@ Python venv:
 | **llama-server** | _(Gemma on :8091 — used by pig-io; pipecat fallback only if pig-io down)_ |
 | **pig-io** | llama-server |
 | **pipecat** (this app) | pig-io on :8765 for `ask_pig` / LLM fallback routes; PipeWire mic |
-| **overlay** | pig-io only _(optional display — not required for voice)_ |
+| **overlay** | pig-io only _(optional display — hide/show, not required for voice)_ |
 
 **Start order:**
 

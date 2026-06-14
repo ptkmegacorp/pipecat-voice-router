@@ -7,7 +7,14 @@ PID_FILE="$PWD/voice-router.pid"
 if [ -s "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
   echo "running pid $(cat "$PID_FILE")"
 else
-  echo "not running"
+  if [ -s "$PID_FILE" ]; then
+    echo "not running (stale pid $(cat "$PID_FILE"))"
+    rm -f "$PID_FILE"
+    "$ROUTER_DIR/voice_status.py" enabled off
+  else
+    echo "not running"
+    "$ROUTER_DIR/voice_status.py" enabled off
+  fi
 fi
 "$ROUTER_DIR/voice_status.py" show
 if [ -r "$HOME/.cache/pipecat-voice/last-input-device.json" ]; then

@@ -30,7 +30,7 @@ export VOICE_ROUTER_INPUT_DEVICE_EXCLUDE="${VOICE_ROUTER_INPUT_DEVICE_EXCLUDE:-h
 # Optional numeric override; leave unset so name-based auto-detect survives reboot.
 export VOICE_ROUTER_INPUT_DEVICE_INDEX="${VOICE_ROUTER_INPUT_DEVICE_INDEX:-}"
 
-nohup "$PYTHON" app.py >>"$LOG_FILE" 2>&1 &
+setsid nohup "$PYTHON" app.py >>"$LOG_FILE" 2>&1 < /dev/null &
 pid=$!
 echo "$pid" > "$PID_FILE"
 sleep 0.5

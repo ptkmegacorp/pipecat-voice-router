@@ -159,12 +159,21 @@ def focus_direction(direction: str):
 
 
 def open_pig_io_overlay():
-    subprocess.Popen(["/home/bot/pig-io/overlay.sh"])
+    subprocess.Popen(["/home/bot/pig-io/overlay.sh", "show"])
 
 
 def close_pig_io_overlay():
-    subprocess.run(["pkill", "-F", "/home/bot/.cache/pig-io/overlay.pid"], check=False)
-    subprocess.run(["pkill", "-f", "rofi -e pig-io voice"], check=False)
+    result = subprocess.run(
+        ["/home/bot/pig-io/overlay.sh", "hide"],
+        capture_output=True,
+        text=True,
+        timeout=3,
+        check=False,
+    )
+    if result.returncode != 0:
+        logger.warning(f"overlay hide failed code={result.returncode} stderr={result.stderr.strip()!r}")
+    else:
+        logger.info("overlay hidden")
 
 
 def list_commands() -> str:
@@ -343,7 +352,7 @@ class VADStatusProcessor(FrameProcessor):
             logger.info("VAD: user started speaking")
         elif isinstance(frame, VADUserStoppedSpeakingFrame):
             set_status("hearing", "off")
-            set_status("mode", "thinking")
+            set_status("mode", "listening")
             logger.info("VAD: user stopped speaking; waiting for Pipecat MoonshineSTTService")
             self._last_vad_stop = time.monotonic()
             asyncio.create_task(self._idle_if_no_transcript(self._last_vad_stop))
@@ -360,7 +369,10 @@ class VoiceRouterProcessor(FrameProcessor):
             logger.info(f"transcription frame={text!r}")
             if text:
                 notify(f"heard: {text}")
-                execute(route_text(text, {"focused_window": get_focused_window()}))
+                action = route_text(text, {"focused_window": get_focused_window()})
+                if action.get("function") in {"ask_pig", "ask_local_llm"}:
+                    set_status("mode", "thinking")
+                execute(action)
                 set_status("mode", "idle")
         else:
             await self.push_frame(frame, direction)
@@ -422,7 +434,11 @@ async def main():
     logger.info(f"Moonshine STT model={MOONSHINE_MODEL}")
     router = VoiceRouterProcessor()
     pipeline = Pipeline([transport.input(), audio_debug, resampler, vad, vad_status, stt, router])
-    worker = PipelineWorker(pipeline)
+    # Always-on mic listener: Pipecat defaults to a 5m idle timeout on UserSpeakingFrame
+    # and will exit even while audio is flowing. Disable unless explicitly configured.
+    idle_timeout = os.environ.get("VOICE_ROUTER_IDLE_TIMEOUT_SECS", "")
+    idle_timeout_secs = float(idle_timeout) if idle_timeout.strip() else None
+    worker = PipelineWorker(pipeline, idle_timeout_secs=idle_timeout_secs)
     runner = WorkerRunner(handle_sigint=True)
     await runner.add_workers(worker)
     try:

@@ -201,7 +201,9 @@
       "description": "Open/show the pig-io voice fallback overlay.",
       "match": [
         "open pig",
+        "open peg",
         "show pig",
+        "show peg",
         "open overlay",
         "show overlay",
         "open pig overlay",
@@ -219,8 +221,12 @@
       "description": "Close/hide the pig-io voice fallback overlay.",
       "match": [
         "close pig",
+        "close peg",
+        "close pay",
         "hide pig",
         "close overlay",
+        "close over leg",
+        "close the overlay",
         "hide overlay",
         "close pig overlay",
         "hide pig overlay",
