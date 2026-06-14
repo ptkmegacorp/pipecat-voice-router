@@ -197,9 +197,29 @@
       "tts": false
     },
     {
-      "name": "close_pig_io_overlay",
-      "description": "Close the floating pig-io voice fallback overlay window.",
+      "name": "open_pig_io_overlay",
+      "description": "Open/show the pig-io voice fallback overlay.",
       "match": [
+        "open pig",
+        "show pig",
+        "open overlay",
+        "show overlay",
+        "open pig overlay",
+        "show pig overlay",
+        "open voice overlay",
+        "show voice overlay"
+      ],
+      "route": "computer_control",
+      "function": "open_pig_io_overlay",
+      "args": {},
+      "tts": false
+    },
+    {
+      "name": "close_pig_io_overlay",
+      "description": "Close/hide the pig-io voice fallback overlay.",
+      "match": [
+        "close pig",
+        "hide pig",
         "close overlay",
         "hide overlay",
         "close pig overlay",

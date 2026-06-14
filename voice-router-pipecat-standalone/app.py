@@ -158,8 +158,13 @@ def focus_direction(direction: str):
     subprocess.Popen(["i3-msg", "focus", direction])
 
 
+def open_pig_io_overlay():
+    subprocess.Popen(["/home/bot/pig-io/overlay.sh"])
+
+
 def close_pig_io_overlay():
-    subprocess.run(["i3-msg", '[title="pig-io-overlay"] kill'], check=False)
+    subprocess.run(["pkill", "-F", "/home/bot/.cache/pig-io/overlay.pid"], check=False)
+    subprocess.run(["pkill", "-f", "rofi -e pig-io voice"], check=False)
 
 
 def list_commands() -> str:
@@ -254,6 +259,8 @@ def execute(action: dict):
         close_youtube()
     elif fn == "focus_direction":
         focus_direction(args["direction"])
+    elif fn == "open_pig_io_overlay":
+        open_pig_io_overlay()
     elif fn == "close_pig_io_overlay":
         close_pig_io_overlay()
     elif fn == "list_routed_commands":

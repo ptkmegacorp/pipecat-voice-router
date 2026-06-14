@@ -64,8 +64,13 @@ def close_youtube():
     subprocess.run(['i3-msg', '[class="mpv"] kill'], check=False)
     subprocess.run(['pkill', '-x', 'mpv'], check=False)
 
+def open_pig_io_overlay():
+    subprocess.Popen(['/home/bot/pig-io/overlay.sh'])
+
+
 def close_pig_io_overlay():
-    subprocess.run(['i3-msg', '[title="pig-io-overlay"] kill'], check=False)
+    subprocess.run(['pkill', '-F', '/home/bot/.cache/pig-io/overlay.pid'], check=False)
+    subprocess.run(['pkill', '-f', 'rofi -e pig-io voice'], check=False)
 
 def ask_pig(prompt):
     print(f'ASK_PIG TODO: {prompt}')
@@ -86,6 +91,7 @@ def execute_action(action):
     if fn == 'open_firefox': return open_firefox()
     if fn == 'close_firefox': return close_firefox()
     if fn == 'close_youtube': return close_youtube()
+    if fn == 'open_pig_io_overlay': return open_pig_io_overlay()
     if fn == 'close_pig_io_overlay': return close_pig_io_overlay()
     if fn == 'ask_pig': return ask_pig(args['prompt'])
     if fn == 'ask_local_llm': return ask_local_llm(args['prompt'])

@@ -42,6 +42,39 @@ Python venv:
 /home/bot/pipecat-voice-router/voice-router-pipecat-standalone/status.sh
 ```
 
+## What depends on what
+
+**pipecat does not need the overlay.** It talks to pig-io over HTTP.
+
+| Service | Requires |
+|---------|----------|
+| **llama-server** | _(Gemma on :8091 — used by pig-io; pipecat fallback only if pig-io down)_ |
+| **pig-io** | llama-server |
+| **pipecat** (this app) | pig-io on :8765 for `ask_pig` / LLM fallback routes; PipeWire mic |
+| **overlay** | pig-io only _(optional display — not required for voice)_ |
+
+**Start order:**
+
+```bash
+# 1. llama-server (:8091)
+
+# 2. pig-io (:8765) — pipecat POSTs /ask here
+cd ~/pig-io && ./stop.sh && ./start.sh
+
+# 3. pipecat (this)
+cd ~/pipecat-voice-router/voice-router-pipecat-standalone && ./stop.sh && ./start.sh
+```
+
+**Verify pipecat → pig-io path** (with both running):
+
+```bash
+curl -sf -X POST http://127.0.0.1:8765/ask \
+  -H 'content-type: application/json' \
+  -d '{"text":"test","source":"pipecat_voice"}'
+```
+
+Then speak — log should show `heard:` → `pig-io accepted`.
+
 Rofi menu:
 
 ```text
