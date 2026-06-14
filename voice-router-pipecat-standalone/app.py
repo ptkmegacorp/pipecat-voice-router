@@ -114,23 +114,17 @@ def notify(msg: str):
 
 def get_focused_window():
     try:
-        name = subprocess.check_output(["xdotool", "getactivewindow", "getwindowname"], text=True).strip()
-        klass = subprocess.check_output(["xdotool", "getactivewindow", "getwindowclassname"], text=True).strip()
+        wid = subprocess.check_output(["xdotool", "getactivewindow"], text=True).strip()
+        name = subprocess.check_output(["xdotool", "getwindowname", wid], text=True).strip()
+        klass = ""
+        prop = subprocess.check_output(["xprop", "-id", wid, "WM_CLASS"], text=True).strip()
+        if "=" in prop:
+            vals = prop.split("=", 1)[1].strip()
+            parts = [p.strip().strip('"') for p in vals.split(",")]
+            klass = parts[-1] if parts else ""
         return {"name": name, "class": klass}
     except Exception:
         return {"name": "", "class": ""}
-
-
-def find_pig_overlay_window():
-    try:
-        out = subprocess.check_output(
-            ["xdotool", "search", "--onlyvisible", "--name", "^pig-io-overlay$"],
-            text=True,
-        ).strip()
-        ids = [wid for wid in out.splitlines() if wid.strip()]
-        return ids[-1] if ids else None
-    except Exception:
-        return None
 
 
 def scroll_urxvt_window(wid: str, direction: str, repeat: int = 4):
@@ -142,23 +136,27 @@ def scroll_urxvt_window(wid: str, direction: str, repeat: int = 4):
     )
 
 
-def scroll(direction: str):
-    overlay_wid = find_pig_overlay_window()
-    if overlay_wid:
-        scroll_urxvt_window(overlay_wid, direction)
-        return
+def is_urxvt_like(klass: str, title: str) -> bool:
+    klass = (klass or "").lower()
+    title = (title or "").lower()
+    return (
+        "urxvt" in klass
+        or "rxvt" in klass
+        or klass in {"terminal", "xterm"}
+        or "pig-io-overlay" in title
+    )
 
+
+def scroll(direction: str):
     win = get_focused_window()
-    title = (win.get("name") or "").lower()
-    klass = (win.get("class") or "").lower()
-    if "urxvt" in klass or "rxvt" in klass or "terminal" in klass or "pig" in title or "pi" in title:
-        wid = None
+    title = win.get("name") or ""
+    klass = win.get("class") or ""
+    if is_urxvt_like(klass, title):
         try:
             wid = subprocess.check_output(["xdotool", "getactivewindow"], text=True).strip()
+            scroll_urxvt_window(wid, direction)
         except Exception:
             pass
-        if wid:
-            scroll_urxvt_window(wid, direction)
         return
 
     subprocess.Popen(["xdotool", "key", "Page_Down" if direction == "down" else "Page_Up"])
@@ -192,7 +190,11 @@ def focus_direction(direction: str):
 
 def focus_pig_io_overlay():
     subprocess.run(["/home/bot/pig-io/overlay.sh", "show"], check=False)
-    subprocess.Popen(["i3-msg", '[title="^pig-io-overlay$"]', "focus"])
+    # no_focus on launch only blocks auto-focus; explicit focus is intentional here.
+    subprocess.run(
+        ["i3-msg", '[title="^pig-io-overlay$"]', "move to workspace current, sticky enable, focus"],
+        check=False,
+    )
 
 
 def open_pig_io_overlay():

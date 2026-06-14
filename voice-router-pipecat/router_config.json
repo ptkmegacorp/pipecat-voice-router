@@ -5,7 +5,7 @@
   "routes": [
     {
       "name": "scroll_down",
-      "description": "Scroll down. If the pig-io overlay is visible, scroll its urxvt scrollback; otherwise PageDown on the focused window.",
+      "description": "Scroll the focused window down. urxvt/terminal uses Shift+PageDown scrollback; other apps use PageDown.",
       "match": [
         "scroll down",
         "go down",
@@ -21,7 +21,7 @@
     },
     {
       "name": "scroll_up",
-      "description": "Scroll up. If the pig-io overlay is visible, scroll its urxvt scrollback; otherwise PageUp on the focused window.",
+      "description": "Scroll the focused window up. urxvt/terminal uses Shift+PageUp scrollback; other apps use PageUp.",
       "match": [
         "scroll up",
         "go up",

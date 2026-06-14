@@ -8,23 +8,17 @@ CONFIG = json.loads(Path(__file__).with_name('router_config.json').read_text())
 
 def get_focused_window():
     try:
-        name = subprocess.check_output(['xdotool','getactivewindow','getwindowname'], text=True).strip()
-        klass = subprocess.check_output(['xdotool','getactivewindow','getwindowclassname'], text=True).strip()
+        wid = subprocess.check_output(['xdotool', 'getactivewindow'], text=True).strip()
+        name = subprocess.check_output(['xdotool', 'getwindowname', wid], text=True).strip()
+        klass = ''
+        prop = subprocess.check_output(['xprop', '-id', wid, 'WM_CLASS'], text=True).strip()
+        if '=' in prop:
+            vals = prop.split('=', 1)[1].strip()
+            parts = [p.strip().strip('"') for p in vals.split(',')]
+            klass = parts[-1] if parts else ''
         return {'name': name, 'class': klass}
     except Exception:
         return {'name': '', 'class': ''}
-
-def find_pig_overlay_window():
-    try:
-        out = subprocess.check_output(
-            ['xdotool', 'search', '--onlyvisible', '--name', '^pig-io-overlay$'],
-            text=True,
-        ).strip()
-        ids = [wid for wid in out.splitlines() if wid.strip()]
-        return ids[-1] if ids else None
-    except Exception:
-        return None
-
 
 def scroll_urxvt_window(wid, direction, repeat=4):
     key = 'shift+Next' if direction == 'down' else 'shift+Prior'
@@ -34,15 +28,21 @@ def scroll_urxvt_window(wid, direction, repeat=4):
     )
 
 
-def scroll(direction, context=None):
-    overlay_wid = find_pig_overlay_window()
-    if overlay_wid:
-        scroll_urxvt_window(overlay_wid, direction)
-        return
+def is_urxvt_like(klass, title):
+    klass = (klass or '').lower()
+    title = (title or '').lower()
+    return (
+        'urxvt' in klass
+        or 'rxvt' in klass
+        or klass in {'terminal', 'xterm'}
+        or 'pig-io-overlay' in title
+    )
 
+
+def scroll(direction, context=None):
     win = (context or {}).get('focused_window') or get_focused_window()
-    klass, title = (win.get('class') or '').lower(), (win.get('name') or '').lower()
-    if 'urxvt' in klass or 'rxvt' in klass or 'terminal' in klass or 'pig' in title or 'pi' in title:
+    klass, title = win.get('class') or '', win.get('name') or ''
+    if is_urxvt_like(klass, title):
         try:
             wid = subprocess.check_output(['xdotool', 'getactivewindow'], text=True).strip()
             scroll_urxvt_window(wid, direction)
@@ -95,7 +95,10 @@ def close_youtube():
 
 def focus_pig_io_overlay():
     subprocess.run(['/home/bot/pig-io/overlay.sh', 'show'], check=False)
-    subprocess.Popen(['i3-msg', '[title="^pig-io-overlay$"]', 'focus'])
+    subprocess.run(
+        ['i3-msg', '[title="^pig-io-overlay$"]', 'move to workspace current, sticky enable, focus'],
+        check=False,
+    )
 
 
 def open_pig_io_overlay():
