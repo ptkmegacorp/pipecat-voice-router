@@ -226,6 +226,8 @@ def list_commands() -> str:
 
 def call_pig_io(prompt: str) -> str | None:
     set_status("mode", "thinking")
+    # Show overlay immediately on fallback — don't wait for pig-io /ask round-trip.
+    subprocess.Popen(["/home/bot/pig-io/overlay.sh", "show"])
     logger.info(f"Pig fallback using {PIG_IO_URL}")
     try:
         resp = requests.post(
