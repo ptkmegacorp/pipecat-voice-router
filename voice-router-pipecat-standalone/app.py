@@ -60,7 +60,15 @@ TTS_CMD = os.environ.get("VOICE_ROUTER_TTS_CMD", "")  # e.g. 'spd-say' or 'espea
 MOONSHINE_MODEL = os.environ.get("VOICE_ROUTER_MOONSHINE_MODEL", Model.TINY_STREAMING.value)
 LLM_MAX_TOKENS = int(os.environ.get("VOICE_ROUTER_LLM_MAX_TOKENS", "64"))
 PIG_IO_URL = os.environ.get("VOICE_ROUTER_PIG_IO_URL", "http://127.0.0.1:8765").rstrip("/")
-PIG_IO_TIMEOUT = float(os.environ.get("VOICE_ROUTER_PIG_IO_TIMEOUT", "5"))
+WM_MSG = ["/home/bot/.config/i3/bin/wm-msg.sh"]
+
+
+def wm(*args: str, check: bool = False) -> None:
+    subprocess.run(WM_MSG + list(args), check=check)
+
+
+def wm_popen(*args: str) -> None:
+    subprocess.Popen(WM_MSG + list(args))
 
 
 def discover_llama_server() -> tuple[str, str]:
@@ -127,16 +135,26 @@ def get_focused_window():
         return {"name": "", "class": ""}
 
 
-def scroll_urxvt_window(wid: str, direction: str, repeat: int = 4):
-    # urxvt default scrollback: Shift+Page_Up/Page_Down (Prior/Next).
-    key = "shift+Next" if direction == "down" else "shift+Prior"
-    subprocess.run(
-        ["xdotool", "key", "--window", wid, "--delay", "40", "--repeat", str(repeat), key],
-        check=False,
-    )
+def scroll_terminal_window(direction: str, repeat: int = 4):
+    # Terminal scrollback: Shift+Page_Up/Page_Down.
+    key = "Next" if direction == "down" else "Prior"
+    if os.environ.get("WAYLAND_DISPLAY"):
+        if subprocess.run(["which", "wtype"], capture_output=True).returncode == 0:
+            for _ in range(repeat):
+                subprocess.run(["wtype", "-M", "shift", "-k", key], check=False)
+            return
+    xkey = "shift+Next" if direction == "down" else "shift+Prior"
+    try:
+        wid = subprocess.check_output(["xdotool", "getactivewindow"], text=True).strip()
+        subprocess.run(
+            ["xdotool", "key", "--window", wid, "--delay", "40", "--repeat", str(repeat), xkey],
+            check=False,
+        )
+    except Exception:
+        pass
 
 
-def is_urxvt_like(klass: str, title: str) -> bool:
+def is_terminal_like(klass: str, title: str) -> bool:
     klass = (klass or "").lower()
     title = (title or "").lower()
     return (
@@ -151,12 +169,8 @@ def scroll(direction: str):
     win = get_focused_window()
     title = win.get("name") or ""
     klass = win.get("class") or ""
-    if is_urxvt_like(klass, title):
-        try:
-            wid = subprocess.check_output(["xdotool", "getactivewindow"], text=True).strip()
-            scroll_urxvt_window(wid, direction)
-        except Exception:
-            pass
+    if is_terminal_like(klass, title):
+        scroll_terminal_window(direction)
         return
 
     subprocess.Popen(["xdotool", "key", "Page_Down" if direction == "down" else "Page_Up"])
@@ -164,37 +178,34 @@ def scroll(direction: str):
 
 def open_youtube(query: str):
     url = "https://www.youtube.com/results?search_query=" + urllib.parse.quote_plus(query)
-    subprocess.Popen(["i3-msg", "exec", f"firefox --new-window {url}"])
+    wm_popen("exec", f"firefox --new-window {url}")
 
 
 def open_firefox():
-    subprocess.Popen(["i3-msg", "exec", "firefox --new-window about:blank"])
+    wm_popen("exec", "firefox --new-window about:blank")
 
 
 def close_firefox():
-    # Firefox WM_CLASS is typically Navigator/firefox on Linux; kill all matching i3 windows.
-    subprocess.run(["i3-msg", '[instance="firefox"] kill'], check=False)
+    wm("[app_id=\"firefox\"] kill")
+    wm('[class="firefox"] kill')
+    wm('[instance="firefox"] kill')
 
 
 def close_youtube():
-    # Close all mpv windows (any display) before/instead of leaving stale players open.
-    subprocess.run(["i3-msg", '[class="mpv"] kill'], check=False)
+    wm('[app_id="mpv"] kill')
+    wm('[class="mpv"] kill')
     subprocess.run(["pkill", "-x", "mpv"], check=False)
 
 
 def focus_direction(direction: str):
     if direction not in {"left", "right", "up", "down"}:
         raise ValueError(f"invalid focus direction: {direction}")
-    subprocess.Popen(["i3-msg", "focus", direction])
+    wm_popen("focus", direction)
 
 
 def focus_pig_io_overlay():
     subprocess.run(["/home/bot/pig-io/overlay.sh", "show"], check=False)
-    # no_focus on launch only blocks auto-focus; explicit focus is intentional here.
-    subprocess.run(
-        ["i3-msg", '[title="^pig-io-overlay$"]', "move to workspace current, sticky enable, focus"],
-        check=False,
-    )
+    wm('[title="^pig-io-overlay$"]', "move to workspace current, sticky enable, focus")
 
 
 def open_pig_io_overlay():
@@ -296,9 +307,9 @@ def execute(action: dict):
     if fn == "scroll":
         scroll(args["direction"])
     elif fn == "make_full_screen":
-        subprocess.Popen(["i3-msg", "fullscreen", "toggle"])
+        wm_popen("fullscreen", "toggle")
     elif fn == "exit_full_screen":
-        subprocess.Popen(["i3-msg", "fullscreen", "disable"])
+        wm_popen("fullscreen", "disable")
     elif fn == "open_youtube_search_url":
         open_youtube(args["query"])
     elif fn == "open_firefox":

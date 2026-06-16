@@ -10,6 +10,8 @@ Type=simple
 WorkingDirectory=/home/bot/pipecat-voice-router/voice-router-pipecat-standalone
 Environment=HOME=/home/bot
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
 ExecStart=/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/.venv/bin/python app.py
 ExecStartPost=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py enabled on
 ExecStartPost=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py mode idle

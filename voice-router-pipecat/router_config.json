@@ -169,10 +169,14 @@
       "description": "Close open Firefox windows via i3. No-op if Firefox is not open. Silent computer action; no TTS.",
       "match": [
         "close firefox",
+        "close fire fox",
         "quit firefox",
         "exit firefox",
+        "kill firefox",
         "close the firefox window",
-        "close firefox window"
+        "close firefox window",
+        "close browser",
+        "close the browser"
       ],
       "route": "browser_automation",
       "function": "close_firefox",
