@@ -18,7 +18,7 @@ local microphone
 → Silero VAD
 → Moonshine STT
 → exact + fuzzy router
-→ i3/browser action OR local LLM fallback
+→ i3/overlay action OR Pig LLM fallback (Firefox/browser requests use fallback)
 ```
 
 ## Setup
@@ -61,10 +61,10 @@ See `voice-router-pipecat/router_config.json`. Examples:
 
 - scroll up/down
 - make / exit fullscreen
-- open / close firefox
-- open youtube and search for …
+- focus / open / close pig-io overlay
+- close youtube (mpv)
 - list all routed commands
-- anything else → local OpenAI-compatible llama-server
+- anything else (including Firefox/browser/YouTube search) → Pig via pig-io or local llama-server
 
 ## Environment
 

@@ -10,7 +10,7 @@ local microphone
 → Silero VAD
 → Moonshine STT
 → exact + fuzzy router
-→ i3/browser action OR local LLM fallback
+→ i3/overlay action OR Pig LLM fallback (Firefox/browser requests use fallback)
 ```
 
 ## Location
@@ -116,16 +116,17 @@ Current direct routes:
 - `scroll up`, `go up`, `page up`, `move up`
 - `make full screen`, `make fullscreen`, `fullscreen`, `full screen`, `toggle full screen`, `toggle fullscreen`
 - `exit fullscreen`, `exit full screen`, `leave fullscreen`, `leave full screen`, `disable fullscreen`, `disable full screen`
-- `open youtube and search for ...`
+- `open pig` / `focus pig` / `close pig` (overlay)
+- `close youtube` (mpv)
 - `list all routed commands`
 
-Anything else goes to the currently running local OpenAI-compatible llama-server endpoint.
+Anything else — including Firefox, browser, and YouTube search requests — goes to Pig via pig-io (`/ask`) or the local OpenAI-compatible llama-server fallback.
 
 Auto-discovery order:
 
 ```text
-http://127.0.0.1:8091/v1  # Pig/local Gemma default on this machine
-http://127.0.0.1:8090/v1  # Pi audio baseline
+http://127.0.0.1:8091/v1  # Pig default (Gemma 4 12B QAT + MTP)
+http://127.0.0.1:8092/v1  # LiteResearcher
 http://127.0.0.1:8088/v1  # Qwen text recipe
 http://127.0.0.1:8080/v1
 ```
@@ -135,8 +136,8 @@ The app reads `/v1/models` and uses the first reported model id, so it follows w
 Override if needed:
 
 ```bash
-export VOICE_ROUTER_LLM_BASE_URL=http://127.0.0.1:8090/v1
-export VOICE_ROUTER_LLM_MODEL=your-model-name
+export VOICE_ROUTER_LLM_BASE_URL=http://127.0.0.1:8091/v1
+export VOICE_ROUTER_LLM_MODEL=gemma-4-12b-it-qat-mtp-local
 ```
 
 Set overrides in `~/.config/systemd/user/pipecat-voice.service.d/override.conf` for persistence.

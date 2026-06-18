@@ -151,39 +151,6 @@
       "tts": true
     },
     {
-      "name": "open_firefox",
-      "description": "Open a new Firefox window. Silent computer action; no TTS.",
-      "match": [
-        "open firefox",
-        "launch firefox",
-        "start firefox",
-        "new firefox window"
-      ],
-      "route": "browser_automation",
-      "function": "open_firefox",
-      "args": {},
-      "tts": false
-    },
-    {
-      "name": "close_firefox",
-      "description": "Close open Firefox windows via i3. No-op if Firefox is not open. Silent computer action; no TTS.",
-      "match": [
-        "close firefox",
-        "close fire fox",
-        "quit firefox",
-        "exit firefox",
-        "kill firefox",
-        "close the firefox window",
-        "close firefox window",
-        "close browser",
-        "close the browser"
-      ],
-      "route": "browser_automation",
-      "function": "close_firefox",
-      "args": {},
-      "tts": false
-    },
-    {
       "name": "close_youtube",
       "description": "Close any open mpv windows (YouTube playback). No-op if mpv is not open. Silent computer action; no TTS.",
       "match": [
@@ -258,15 +225,6 @@
       "tts": false
     },
     {
-      "name": "youtube_search",
-      "description": "Open a new Firefox/i3 window directly to YouTube search results for the query. Silent computer action; no TTS.",
-      "prefix": "open youtube and search for ",
-      "route": "browser_automation",
-      "function": "open_youtube_search_url",
-      "query_arg": "query",
-      "tts": false
-    },
-    {
       "name": "research_tell_me",
       "description": "Route to Pig/main LLM for web/research answer, then speak the result with TTS.",
       "prefix": "search for ",
@@ -280,6 +238,6 @@
     "route": "main_llm",
     "function": "ask_pig",
     "tts": true,
-    "description": "If it is not one of the directly routed commands, send it to the main LLM/Pig."
+    "description": "If it is not one of the directly routed commands (including Firefox/browser/YouTube search requests), send it to the main LLM/Pig."
   }
 }

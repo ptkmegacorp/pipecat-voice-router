@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import json, subprocess, sys, urllib.parse
+import json, subprocess, sys
 from pathlib import Path
 
 from routing import route_text
@@ -79,16 +79,6 @@ def list_routed_commands():
     return result
 
 
-def open_youtube_search_url(query):
-    url = 'https://www.youtube.com/results?search_query=' + urllib.parse.quote_plus(query)
-    subprocess.Popen(['i3-msg','exec',f'firefox --new-window {url}'])
-
-def open_firefox():
-    subprocess.Popen(['i3-msg', 'exec', 'firefox --new-window about:blank'])
-
-def close_firefox():
-    subprocess.run(['i3-msg', '[instance="firefox"] kill'], check=False)
-
 def close_youtube():
     subprocess.run(['i3-msg', '[class="mpv"] kill'], check=False)
     subprocess.run(['pkill', '-x', 'mpv'], check=False)
@@ -123,9 +113,6 @@ def execute_action(action):
     if fn == 'exit_full_screen': return exit_full_screen()
     if fn == 'focus_direction': return focus_direction(args['direction'])
     if fn == 'list_routed_commands': return list_routed_commands()
-    if fn == 'open_youtube_search_url': return open_youtube_search_url(args['query'])
-    if fn == 'open_firefox': return open_firefox()
-    if fn == 'close_firefox': return close_firefox()
     if fn == 'close_youtube': return close_youtube()
     if fn == 'open_pig_io_overlay': return open_pig_io_overlay()
     if fn == 'focus_pig_io_overlay': return focus_pig_io_overlay()

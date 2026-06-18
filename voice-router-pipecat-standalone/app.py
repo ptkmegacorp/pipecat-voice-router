@@ -2,7 +2,7 @@
 """Standalone Pipecat voice router.
 
 Flow:
-  local mic -> Silero VAD -> Moonshine STT -> deterministic router -> action or local LLM
+  local mic -> Silero VAD -> Moonshine STT -> deterministic router -> i3/overlay action or Pig LLM fallback
 """
 import asyncio
 import json
@@ -12,7 +12,6 @@ import subprocess
 import sys
 import time
 import audioop
-import urllib.parse
 from pathlib import Path
 
 import requests
@@ -60,6 +59,7 @@ TTS_CMD = os.environ.get("VOICE_ROUTER_TTS_CMD", "")  # e.g. 'spd-say' or 'espea
 MOONSHINE_MODEL = os.environ.get("VOICE_ROUTER_MOONSHINE_MODEL", Model.TINY_STREAMING.value)
 LLM_MAX_TOKENS = int(os.environ.get("VOICE_ROUTER_LLM_MAX_TOKENS", "64"))
 PIG_IO_URL = os.environ.get("VOICE_ROUTER_PIG_IO_URL", "http://127.0.0.1:8765").rstrip("/")
+PIG_IO_TIMEOUT = float(os.environ.get("VOICE_ROUTER_PIG_IO_TIMEOUT", "5"))
 WM_MSG = ["/home/bot/.config/i3/bin/wm-msg.sh"]
 
 
@@ -83,7 +83,7 @@ def discover_llama_server() -> tuple[str, str]:
     candidates = [explicit_base] if explicit_base else []
     candidates += [
         "http://127.0.0.1:8091/v1",  # Pig/local Gemma default on this machine
-        "http://127.0.0.1:8090/v1",  # Pi audio baseline
+        "http://127.0.0.1:8091/v1",  # Pig default (Gemma 12B QAT)
         "http://127.0.0.1:8088/v1",  # Qwen text recipe
         "http://127.0.0.1:8080/v1",
     ]
@@ -174,21 +174,6 @@ def scroll(direction: str):
         return
 
     subprocess.Popen(["xdotool", "key", "Page_Down" if direction == "down" else "Page_Up"])
-
-
-def open_youtube(query: str):
-    url = "https://www.youtube.com/results?search_query=" + urllib.parse.quote_plus(query)
-    wm_popen("exec", f"firefox --new-window {url}")
-
-
-def open_firefox():
-    wm_popen("exec", "firefox --new-window about:blank")
-
-
-def close_firefox():
-    wm("[app_id=\"firefox\"] kill")
-    wm('[class="firefox"] kill')
-    wm('[instance="firefox"] kill')
 
 
 def close_youtube():
@@ -310,12 +295,6 @@ def execute(action: dict):
         wm_popen("fullscreen", "toggle")
     elif fn == "exit_full_screen":
         wm_popen("fullscreen", "disable")
-    elif fn == "open_youtube_search_url":
-        open_youtube(args["query"])
-    elif fn == "open_firefox":
-        open_firefox()
-    elif fn == "close_firefox":
-        close_firefox()
     elif fn == "close_youtube":
         close_youtube()
     elif fn == "focus_direction":
