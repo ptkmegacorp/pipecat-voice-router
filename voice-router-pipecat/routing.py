@@ -3,6 +3,7 @@
 
 import json
 import os
+import re
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -30,7 +31,8 @@ OPTIONAL_WORDS = frozenset({"that", "the", "a", "my", "this", "just"})
 
 
 def norm(s: str) -> str:
-    return " ".join(s.strip().lower().replace("-", " ").split())
+    t = " ".join(s.strip().lower().replace("-", " ").split())
+    return t.rstrip(".,!?;:")
 
 
 def strip_fillers(text: str) -> str:
@@ -61,8 +63,14 @@ def fuzzy_score(a: str, b: str) -> float:
     if a == b:
         return 100.0
     if a in b or b in a:
-        return 95.0
-    return SequenceMatcher(None, a, b).ratio() * 100.0
+        score = 95.0
+    else:
+        score = SequenceMatcher(None, a, b).ratio() * 100.0
+    nums_a = re.findall(r"\d+", a)
+    nums_b = re.findall(r"\d+", b)
+    if (nums_a or nums_b) and nums_a != nums_b:
+        return min(score, 80.0)
+    return score
 
 
 def _route_match(route: dict, prepared: str) -> tuple[bool, float, str | None]:

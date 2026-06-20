@@ -135,7 +135,7 @@ def get_focused_window():
         return {"name": "", "class": ""}
 
 
-def scroll_terminal_window(direction: str, repeat: int = 4):
+def scroll_terminal_window(direction: str, repeat: int = 1):
     # Terminal scrollback: Shift+Page_Up/Page_Down.
     key = "Next" if direction == "down" else "Prior"
     if os.environ.get("WAYLAND_DISPLAY"):
@@ -154,21 +154,36 @@ def scroll_terminal_window(direction: str, repeat: int = 4):
         pass
 
 
+def scroll_pig_io_overlay_window(direction: str, repeat: int = 2):
+    # The overlay has its own app-level scrollback. Send plain PageUp/PageDown
+    # to the app instead of Shift+PageUp terminal scrollback.
+    key = "Page_Down" if direction == "down" else "Page_Up"
+    try:
+        wid = subprocess.check_output(["xdotool", "getactivewindow"], text=True).strip()
+        subprocess.run(
+            ["xdotool", "key", "--window", wid, "--delay", "40", "--repeat", str(repeat), key],
+            check=False,
+        )
+    except Exception:
+        pass
+
+
+def is_pig_io_overlay(title: str) -> bool:
+    return "pig-io-overlay" in (title or "").lower()
+
+
 def is_terminal_like(klass: str, title: str) -> bool:
     klass = (klass or "").lower()
-    title = (title or "").lower()
-    return (
-        "urxvt" in klass
-        or "rxvt" in klass
-        or klass in {"terminal", "xterm"}
-        or "pig-io-overlay" in title
-    )
+    return "urxvt" in klass or "rxvt" in klass or klass in {"terminal", "xterm"}
 
 
 def scroll(direction: str):
     win = get_focused_window()
     title = win.get("name") or ""
     klass = win.get("class") or ""
+    if is_pig_io_overlay(title):
+        scroll_pig_io_overlay_window(direction)
+        return
     if is_terminal_like(klass, title):
         scroll_terminal_window(direction)
         return
@@ -188,27 +203,42 @@ def focus_direction(direction: str):
     wm_popen("focus", direction)
 
 
-def focus_pig_io_overlay():
-    subprocess.run(["/home/bot/pig-io/overlay.sh", "show"], check=False)
-    wm('[title="^pig-io-overlay$"]', "move to workspace current, sticky enable, focus")
+PIG_IO_WORKSPACE = "/home/bot/.config/i3/bin/pig-io-workspace.sh"
+PIG_IO_WS = os.environ.get("PIG_IO_WORKSPACE", "1")
+MAIN_WS = os.environ.get("PIG_IO_MAIN_WORKSPACE", "2")
 
 
-def open_pig_io_overlay():
+def ensure_pig_io_overlay():
     subprocess.Popen(["/home/bot/pig-io/overlay.sh", "show"])
 
 
-def close_pig_io_overlay():
-    result = subprocess.run(
-        ["/home/bot/pig-io/overlay.sh", "hide"],
-        capture_output=True,
-        text=True,
-        timeout=3,
-        check=False,
-    )
-    if result.returncode != 0:
-        logger.warning(f"overlay hide failed code={result.returncode} stderr={result.stderr.strip()!r}")
+def show_pig_io_workspace():
+    ensure_pig_io_overlay()
+    if os.path.isfile(PIG_IO_WORKSPACE):
+        subprocess.Popen([PIG_IO_WORKSPACE, "show"])
     else:
-        logger.info("overlay hidden")
+        wm("workspace", "number", PIG_IO_WS)
+        wm('[title="^pig-io-overlay$"]', "focus")
+
+
+def hide_pig_io_workspace():
+    if os.path.isfile(PIG_IO_WORKSPACE):
+        subprocess.run([PIG_IO_WORKSPACE, "hide"], check=False)
+    else:
+        wm("workspace", "number", MAIN_WS)
+
+
+def focus_pig_io_overlay():
+    show_pig_io_workspace()
+
+
+def open_pig_io_overlay():
+    show_pig_io_workspace()
+
+
+def close_pig_io_overlay():
+    hide_pig_io_workspace()
+    logger.info(f"switched to workspace {MAIN_WS}")
 
 
 def list_commands() -> str:
@@ -222,8 +252,8 @@ def list_commands() -> str:
 
 def call_pig_io(prompt: str) -> str | None:
     set_status("mode", "thinking")
-    # Show overlay immediately on fallback — don't wait for pig-io /ask round-trip.
-    subprocess.Popen(["/home/bot/pig-io/overlay.sh", "show"])
+    # Show overlay workspace immediately on fallback — don't wait for pig-io /ask round-trip.
+    show_pig_io_workspace()
     logger.info(f"Pig fallback using {PIG_IO_URL}")
     try:
         resp = requests.post(

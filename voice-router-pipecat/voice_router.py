@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import json, subprocess, sys
+import json, os, subprocess, sys
 from pathlib import Path
 
 from routing import route_text
@@ -20,7 +20,7 @@ def get_focused_window():
     except Exception:
         return {'name': '', 'class': ''}
 
-def scroll_urxvt_window(wid, direction, repeat=4):
+def scroll_urxvt_window(wid, direction, repeat=1):
     key = 'shift+Next' if direction == 'down' else 'shift+Prior'
     subprocess.run(
         ['xdotool', 'key', '--window', wid, '--delay', '40', '--repeat', str(repeat), key],
@@ -28,20 +28,33 @@ def scroll_urxvt_window(wid, direction, repeat=4):
     )
 
 
+def scroll_pig_io_overlay_window(wid, direction, repeat=2):
+    key = 'Page_Down' if direction == 'down' else 'Page_Up'
+    subprocess.run(
+        ['xdotool', 'key', '--window', wid, '--delay', '40', '--repeat', str(repeat), key],
+        check=False,
+    )
+
+
+def is_pig_io_overlay(title):
+    return 'pig-io-overlay' in (title or '').lower()
+
+
 def is_urxvt_like(klass, title):
     klass = (klass or '').lower()
-    title = (title or '').lower()
-    return (
-        'urxvt' in klass
-        or 'rxvt' in klass
-        or klass in {'terminal', 'xterm'}
-        or 'pig-io-overlay' in title
-    )
+    return 'urxvt' in klass or 'rxvt' in klass or klass in {'terminal', 'xterm'}
 
 
 def scroll(direction, context=None):
     win = (context or {}).get('focused_window') or get_focused_window()
     klass, title = win.get('class') or '', win.get('name') or ''
+    if is_pig_io_overlay(title):
+        try:
+            wid = subprocess.check_output(['xdotool', 'getactivewindow'], text=True).strip()
+            scroll_pig_io_overlay_window(wid, direction)
+        except Exception:
+            pass
+        return
     if is_urxvt_like(klass, title):
         try:
             wid = subprocess.check_output(['xdotool', 'getactivewindow'], text=True).strip()
@@ -83,20 +96,41 @@ def close_youtube():
     subprocess.run(['i3-msg', '[class="mpv"] kill'], check=False)
     subprocess.run(['pkill', '-x', 'mpv'], check=False)
 
-def focus_pig_io_overlay():
-    subprocess.run(['/home/bot/pig-io/overlay.sh', 'show'], check=False)
-    subprocess.run(
-        ['i3-msg', '[title="^pig-io-overlay$"]', 'move to workspace current, sticky enable, focus'],
-        check=False,
-    )
+PIG_IO_WORKSPACE = '/home/bot/.config/i3/bin/pig-io-workspace.sh'
+PIG_IO_WS = '1'
+MAIN_WS = '2'
 
 
-def open_pig_io_overlay():
+def ensure_pig_io_overlay():
     subprocess.Popen(['/home/bot/pig-io/overlay.sh', 'show'])
 
 
+def show_pig_io_workspace():
+    ensure_pig_io_overlay()
+    if os.path.isfile(PIG_IO_WORKSPACE):
+        subprocess.Popen([PIG_IO_WORKSPACE, 'show'])
+    else:
+        subprocess.run(['i3-msg', 'workspace', 'number', PIG_IO_WS], check=False)
+        subprocess.run(['i3-msg', '[title="^pig-io-overlay$"]', 'focus'], check=False)
+
+
+def hide_pig_io_workspace():
+    if os.path.isfile(PIG_IO_WORKSPACE):
+        subprocess.run([PIG_IO_WORKSPACE, 'hide'], check=False)
+    else:
+        subprocess.run(['i3-msg', 'workspace', 'number', MAIN_WS], check=False)
+
+
+def focus_pig_io_overlay():
+    show_pig_io_workspace()
+
+
+def open_pig_io_overlay():
+    show_pig_io_workspace()
+
+
 def close_pig_io_overlay():
-    subprocess.run(['/home/bot/pig-io/overlay.sh', 'hide'], check=False)
+    hide_pig_io_workspace()
 
 def ask_pig(prompt):
     print(f'ASK_PIG TODO: {prompt}')
