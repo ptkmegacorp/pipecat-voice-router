@@ -40,6 +40,10 @@ def is_pig_io_overlay(title):
     return 'pig-io-overlay' in (title or '').lower()
 
 
+def is_pig_hud(title):
+    return 'pig-hud' in (title or '').lower()
+
+
 def is_urxvt_like(klass, title):
     klass = (klass or '').lower()
     return 'urxvt' in klass or 'rxvt' in klass or klass in {'terminal', 'xterm'}
@@ -48,7 +52,7 @@ def is_urxvt_like(klass, title):
 def scroll(direction, context=None):
     win = (context or {}).get('focused_window') or get_focused_window()
     klass, title = win.get('class') or '', win.get('name') or ''
-    if is_pig_io_overlay(title):
+    if is_pig_io_overlay(title) or is_pig_hud(title):
         try:
             wid = subprocess.check_output(['xdotool', 'getactivewindow'], text=True).strip()
             scroll_pig_io_overlay_window(wid, direction)
@@ -132,6 +136,14 @@ def open_pig_io_overlay():
 def close_pig_io_overlay():
     hide_pig_io_workspace()
 
+def open_pig_hud():
+    subprocess.Popen(['/home/bot/pig-io/pig-hud.sh', 'show'])
+
+
+def close_pig_hud():
+    subprocess.Popen(['/home/bot/pig-io/pig-hud.sh', 'close'])
+
+
 def ask_pig(prompt):
     print(f'ASK_PIG TODO: {prompt}')
     return ''
@@ -151,6 +163,8 @@ def execute_action(action):
     if fn == 'open_pig_io_overlay': return open_pig_io_overlay()
     if fn == 'focus_pig_io_overlay': return focus_pig_io_overlay()
     if fn == 'close_pig_io_overlay': return close_pig_io_overlay()
+    if fn == 'open_pig_hud': return open_pig_hud()
+    if fn == 'close_pig_hud': return close_pig_hud()
     if fn == 'ask_pig': return ask_pig(args['prompt'])
     if fn == 'ask_local_llm': return ask_local_llm(args['prompt'])
     raise ValueError(fn)

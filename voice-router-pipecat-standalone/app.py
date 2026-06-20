@@ -172,6 +172,10 @@ def is_pig_io_overlay(title: str) -> bool:
     return "pig-io-overlay" in (title or "").lower()
 
 
+def is_pig_hud(title: str) -> bool:
+    return "pig-hud" in (title or "").lower()
+
+
 def is_terminal_like(klass: str, title: str) -> bool:
     klass = (klass or "").lower()
     return "urxvt" in klass or "rxvt" in klass or klass in {"terminal", "xterm"}
@@ -181,7 +185,7 @@ def scroll(direction: str):
     win = get_focused_window()
     title = win.get("name") or ""
     klass = win.get("class") or ""
-    if is_pig_io_overlay(title):
+    if is_pig_io_overlay(title) or is_pig_hud(title):
         scroll_pig_io_overlay_window(direction)
         return
     if is_terminal_like(klass, title):
@@ -239,6 +243,14 @@ def open_pig_io_overlay():
 def close_pig_io_overlay():
     hide_pig_io_workspace()
     logger.info(f"switched to workspace {MAIN_WS}")
+
+
+def open_pig_hud():
+    subprocess.Popen(["/home/bot/pig-io/pig-hud.sh", "show"])
+
+
+def close_pig_hud():
+    subprocess.Popen(["/home/bot/pig-io/pig-hud.sh", "close"])
 
 
 def list_commands() -> str:
@@ -335,6 +347,10 @@ def execute(action: dict):
         focus_pig_io_overlay()
     elif fn == "close_pig_io_overlay":
         close_pig_io_overlay()
+    elif fn == "open_pig_hud":
+        open_pig_hud()
+    elif fn == "close_pig_hud":
+        close_pig_hud()
     elif fn == "list_routed_commands":
         speak(list_commands())
     elif fn in {"ask_pig", "ask_local_llm"}:

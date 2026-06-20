@@ -247,6 +247,34 @@
       "tts": false
     },
     {
+      "name": "open_pig_hud",
+      "description": "Open/show the pig-hud observability sidecar.",
+      "match": [
+        "open hud",
+        "show hud",
+        "open pig hud",
+        "show pig hud"
+      ],
+      "route": "computer_control",
+      "function": "open_pig_hud",
+      "args": {},
+      "tts": false
+    },
+    {
+      "name": "close_pig_hud",
+      "description": "Close/hide the pig-hud observability sidecar.",
+      "match": [
+        "close hud",
+        "hide hud",
+        "close pig hud",
+        "hide pig hud"
+      ],
+      "route": "computer_control",
+      "function": "close_pig_hud",
+      "args": {},
+      "tts": false
+    },
+    {
       "name": "research_tell_me",
       "description": "Route to Pig/main LLM for web/research answer, then speak the result with TTS.",
       "prefix": "search for ",
