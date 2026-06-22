@@ -2,6 +2,8 @@
 
 This is the standalone Pipecat app for voice control.
 
+E2E routing map: [ROUTING.md](../../pig-io/ROUTING.md).
+
 It is separate from the Pig extension. It uses Pipecat as the framework:
 
 ```text

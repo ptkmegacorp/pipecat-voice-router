@@ -5,6 +5,8 @@ Usage:
   voice_status.py enabled on|off
   voice_status.py hearing on|off
   voice_status.py mode idle|listening|thinking|speaking|error
+  voice_status.py profile "pipecat pig-io"|"pipecat pi"
+  voice_status.py mic auto-usb|NAME
   voice_status.py show
 """
 import json
@@ -13,7 +15,7 @@ from pathlib import Path
 
 STATE_DIR = Path.home() / ".cache" / "pipecat-voice"
 STATE_FILE = STATE_DIR / "status.json"
-DEFAULT = {"enabled": False, "hearing": False, "mode": "off"}
+DEFAULT = {"enabled": False, "hearing": False, "mode": "off", "profile": "pipecat pig-io", "mic": "auto-usb"}
 
 
 def load():
@@ -51,6 +53,12 @@ def main(argv):
         if value == "off":
             state["enabled"] = False
             state["hearing"] = False
+    elif key == "profile":
+        if value not in {"pipecat pig-io", "pipecat pi"}:
+            raise SystemExit(f"unknown profile: {value}")
+        state["profile"] = value
+    elif key == "mic":
+        state["mic"] = argv[2]
     else:
         raise SystemExit(f"unknown key: {key}")
     save(state)

@@ -2,6 +2,8 @@
 
 Chosen framework: **Pipecat**.
 
+E2E routing map: [ROUTING.md](../../pig-io/ROUTING.md).
+
 Reason: for this use case we want custom routing between final ASR text and the main LLM/tools. Pipecat is a Python pipeline framework, so it is a better first fit than LiveKit's heavier realtime/session infrastructure.
 
 Desired flow:

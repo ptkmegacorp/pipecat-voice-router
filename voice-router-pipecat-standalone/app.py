@@ -459,6 +459,7 @@ class VoiceRouterProcessor(FrameProcessor):
 
 async def main():
     PID_FILE.write_text(str(os.getpid()))
+    set_status("profile", "pipecat pig-io")
     set_status("enabled", "on")
     set_status("mode", "idle")
     base_url, model = discover_llama_server()
@@ -477,6 +478,7 @@ async def main():
     input_device_index = discover_input_device_index(logger=logger)
     device_label = input_device_name(input_device_index)
     logger.info(f"Using input_device_index={input_device_index} ({device_label})")
+    set_status("mic", device_label)
     if input_device_index is None:
         devices = list_input_devices()
         device_lines = ", ".join(

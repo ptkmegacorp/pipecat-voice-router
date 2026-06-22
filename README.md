@@ -2,6 +2,8 @@
 
 Local voice control for i3/Linux: mic → VAD → Moonshine STT → routed commands or local LLM fallback.
 
+E2E routing map: [ROUTING.md](../pig-io/ROUTING.md).
+
 ## Layout
 
 ```text
