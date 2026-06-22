@@ -80,30 +80,24 @@ Desktop entry:
 
 ## Current wiring
 
-This is now wired through the existing Pig voice extension:
+Pig/Pig-IO voice routing is now owned by standalone Pipecat. Focused Pi TUI push-to-talk input is owned by:
 
 ```text
-/home/bot/projects/pi-voice-vad-gemma/src/index.ts
+/home/bot/projects/pi-pipecat-voice/src/index.ts
 ```
 
-The extension already uses local VAD + Moonshine/Whisper STT. It now:
+The focused Pi extension uses local VAD + Moonshine/Whisper STT for Ctrl+Space recording, inserts the transcript into the Pi editor, and waits for the user to press Enter.
 
-- polls the rofi/i3bar state file once per second
-- starts continuous VAD when rofi sets `enabled: true`
-- stops continuous VAD when rofi sets `enabled: false`
-- updates i3bar on speech start/stop, thinking, speaking, and errors
-- runs deterministic direct routed commands before sending fallback text to Pig/main LLM
-
-Important: restart/open a new Pig session after code changes so the updated extension is loaded.
+Important: restart/open a new Pi session after extension code changes so the updated extension is loaded.
 
 Runtime events:
 
 ```text
-rofi enable on                 -> extension starts continuous VAD
-rofi enable off                -> extension stops continuous VAD
+profile pipecat pig-io         -> standalone Pipecat/Pig-IO voice routing
+profile pipecat pi             -> focused Pi TUI Ctrl+Space voice input
 VAD speech start               -> hearing on, mode listening
 VAD speech stop                -> hearing off
-final transcript committed     -> mode thinking
+final transcript committed     -> mode thinking/idle depending on profile
 routed silent command done     -> mode idle
 TTS start                      -> mode speaking
 TTS stop                       -> mode idle/off
