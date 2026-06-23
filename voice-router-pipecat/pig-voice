@@ -68,7 +68,15 @@ case "${1:-status}" in
   reconcile|doctor) reconcile ;;
   reset) reset_all ;;
   switch) switch_profile "${2:-}" ;;
-  paste-toggle) reconcile; flock -n "$PASTE_LOCK" /home/bot/bin/pipecat-paste-toggle ; reconcile ;;
+  paste-toggle)
+    reconcile
+    # --close: arecord is backgrounded; without this it inherits the flock fd and
+    # blocks the second Ctrl+Space for the whole recording.
+    if ! flock -n -o "$PASTE_LOCK" /home/bot/bin/pipecat-paste-toggle; then
+      notify "Paste busy — still recording or transcribing"
+    fi
+    reconcile
+    ;;
   model-switched) reconcile ;;
   *) echo "usage: pig-voice status|reconcile|reset|switch pig-io|paste|paste-toggle|model-switched" >&2; exit 2 ;;
 esac
