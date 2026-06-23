@@ -112,20 +112,35 @@ finish_recording() {
 }
 
 start_recording() {
-  rm -f "$WAV_FILE" "$OUT_TXT"
+  rm -f "$PID_FILE" "$WAV_FILE" "$OUT_TXT"
   set_status profile "pipecat paste"
   set_status enabled on
   set_status mode recording
   set_status hearing on
-  notify "Recording. Press Ctrl+Space again to paste."
   log "recording from $MIC_DEVICE to $WAV_FILE"
   arecord -q -D "$MIC_DEVICE" -f S16_LE -r 16000 -c 1 -t wav "$WAV_FILE" >> "$LOG_FILE" 2>&1 &
-  echo $! > "$PID_FILE"
+  local pid=$!
+  echo "$pid" > "$PID_FILE"
+  sleep 0.2
+  if ! kill -0 "$pid" 2>/dev/null; then
+    rm -f "$PID_FILE"
+    set_status hearing off
+    set_status mode error
+    notify "Mic open failed; check pipecat/logs"
+    log "recording failed to start"
+    exit 1
+  fi
+  notify "Recording. Press Ctrl+Space again to paste."
 }
 
-if [ -s "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-  set_status hearing off
-  finish_recording
+if [ -s "$PID_FILE" ]; then
+  if kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    set_status hearing off
+    finish_recording
+  else
+    rm -f "$PID_FILE"
+    start_recording
+  fi
 else
   start_recording
 fi
