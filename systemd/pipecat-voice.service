@@ -16,6 +16,8 @@ ExecStart=/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/.venv/b
 ExecStartPost=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py enabled on
 ExecStartPost=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py mode idle
 ExecStopPost=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py enabled off
+TimeoutStopSec=10
+KillMode=mixed
 Restart=on-failure
 RestartSec=5
 Environment="VOICE_ROUTER_INPUT_DEVICE_MATCH=USB Composite Device,USB Audio"

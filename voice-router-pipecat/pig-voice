@@ -20,6 +20,27 @@ stop_paste() {
 }
 service_active() { systemctl --user is-active --quiet "$PIPESVC"; }
 
+# pipecat-voice can take ~90s to exit on a plain `systemctl stop` (pipewire mic hold).
+stop_voice_async() {
+  systemctl --user stop --no-block "$PIPESVC" >/dev/null 2>&1 || true
+}
+
+stop_voice_for_mic() {
+  if service_active || systemctl --user is-failed --quiet "$PIPESVC" 2>/dev/null; then
+    systemctl --user kill -s SIGKILL "$PIPESVC" >/dev/null 2>&1 || true
+    systemctl --user reset-failed "$PIPESVC" >/dev/null 2>&1 || true
+  fi
+  local i
+  for i in $(seq 1 30); do
+    service_active || break
+    sleep 0.1
+  done
+  for i in $(seq 1 30); do
+    fuser /dev/snd/pcmC2D0c >/dev/null 2>&1 || return 0
+    sleep 0.1
+  done
+}
+
 pigio_consistent() {
   curl -sf "$PIG_IO/status" 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin); raise SystemExit(0 if s.get("consistent", True) else 1)' 2>/dev/null
 }
@@ -37,7 +58,7 @@ reconcile() {
       if ! service_active; then systemctl --user reset-failed "$PIPESVC" >/dev/null 2>&1 || true; systemctl --user start "$PIPESVC" >/dev/null 2>&1 || true; fi
       ;;
     "pipecat paste"|*)
-      systemctl --user stop "$PIPESVC" >/dev/null 2>&1 || true
+      stop_voice_async
       set_state profile "pipecat paste"
       if paste_alive; then set_state enabled on; set_state hearing on; set_state mode recording; else set_state hearing off; set_state mode idle; fi
       ;;
@@ -50,14 +71,14 @@ reconcile() {
 
 reset_all() {
   stop_paste
-  systemctl --user stop "$PIPESVC" >/dev/null 2>&1 || true
+  stop_voice_for_mic
   set_state enabled off; set_state hearing off; set_state mode off
 }
 
 switch_profile() {
   case "${1:-}" in
     pig-io|pipecat-pig-io|"pipecat pig-io") set_state profile "pipecat pig-io"; set_state enabled on ;;
-    paste|pipecat-paste|"pipecat paste") set_state profile "pipecat paste"; set_state enabled off ;;
+    paste|pipecat-paste|"pipecat paste") set_state profile "pipecat paste"; set_state enabled off; stop_voice_for_mic ;;
     *) echo "usage: pig-voice switch pig-io|paste" >&2; exit 2 ;;
   esac
   reconcile
@@ -69,7 +90,7 @@ case "${1:-status}" in
   reset) reset_all ;;
   switch) switch_profile "${2:-}" ;;
   paste-toggle)
-    reconcile
+    stop_voice_for_mic
     # --close: arecord is backgrounded; without this it inherits the flock fd and
     # blocks the second Ctrl+Space for the whole recording.
     if ! flock -n -o "$PASTE_LOCK" /home/bot/bin/pipecat-paste-toggle; then
