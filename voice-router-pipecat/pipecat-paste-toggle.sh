@@ -49,8 +49,16 @@ paste_text() {
   title="$(active_window_title)"
   log "paste target class=$klass title=$title"
   if [[ "$title" == *pig-io-overlay* ]]; then
-    # pig-io overlay is a raw terminal TUI; bracketed paste from the terminal
-    # does not reliably reach its Input widget, so type the transcript directly.
+    if curl -fsS -X POST http://127.0.0.1:8765/overlay-input \
+      -H 'content-type: application/json' \
+      -d "$(python3 -c 'import json,sys; print(json.dumps({"text": sys.argv[1]}))' "$text")" \
+      >/dev/null 2>&1; then
+      sleep 0.2
+      printf '%s' "$old_clip" | xclip -selection clipboard -i
+      printf '%s' "$old_primary" | xclip -selection primary -i
+      return
+    fi
+    # Fallback for older pig-io: type directly into the raw terminal TUI.
     xdotool type --clearmodifiers --delay 1 -- "$text"
     sleep 0.2
     printf '%s' "$old_clip" | xclip -selection clipboard -i
