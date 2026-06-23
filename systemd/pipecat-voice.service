@@ -18,7 +18,7 @@ ExecStartPost=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.p
 ExecStopPost=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py enabled off
 Restart=on-failure
 RestartSec=5
-Environment=VOICE_ROUTER_INPUT_DEVICE_MATCH=USB Composite Device,USB Audio
+Environment="VOICE_ROUTER_INPUT_DEVICE_MATCH=USB Composite Device,USB Audio"
 Environment=VOICE_ROUTER_INPUT_DEVICE_EXCLUDE=hdmi,nvidia,monitor,spdif
 
 [Install]
