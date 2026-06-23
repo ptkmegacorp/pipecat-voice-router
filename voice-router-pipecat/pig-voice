@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+STATUS=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py
+PIPESVC=pipecat-voice.service
+PASTE_DIR="$HOME/.cache/pipecat-paste"
+PASTE_PID="$PASTE_DIR/arecord.pid"
+PASTE_LOCK="$PASTE_DIR/toggle.lock"
+PIG_IO=http://127.0.0.1:8765
+
+state_json() { "$STATUS" show 2>/dev/null || echo '{"enabled":false,"hearing":false,"mode":"off","profile":"pipecat paste"}'; }
+profile() { python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("profile","pipecat paste"))' <<<"$(state_json)"; }
+set_state() { "$STATUS" "$@" >/dev/null 2>&1 || true; }
+notify() { command -v notify-send >/dev/null 2>&1 && notify-send "Pig voice" "$1" >/dev/null 2>&1 || true; }
+
+paste_alive() { [[ -s "$PASTE_PID" ]] && kill -0 "$(cat "$PASTE_PID" 2>/dev/null)" 2>/dev/null; }
+stop_paste() {
+  if paste_alive; then kill -INT "$(cat "$PASTE_PID")" 2>/dev/null || true; sleep 0.2; kill -TERM "$(cat "$PASTE_PID")" 2>/dev/null || true; fi
+  rm -f "$PASTE_PID"
+}
+service_active() { systemctl --user is-active --quiet "$PIPESVC"; }
+
+pigio_consistent() {
+  curl -sf "$PIG_IO/status" 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin); raise SystemExit(0 if s.get("consistent", True) else 1)' 2>/dev/null
+}
+
+reconcile() {
+  mkdir -p "$PASTE_DIR"
+  local p; p="$(profile)"
+  if [[ -s "$PASTE_PID" ]] && ! paste_alive; then rm -f "$PASTE_PID"; fi
+
+  case "$p" in
+    "pipecat pig-io")
+      stop_paste
+      set_state profile "pipecat pig-io"
+      set_state hearing off
+      if ! service_active; then systemctl --user reset-failed "$PIPESVC" >/dev/null 2>&1 || true; systemctl --user start "$PIPESVC" >/dev/null 2>&1 || true; fi
+      ;;
+    "pipecat paste"|*)
+      systemctl --user stop "$PIPESVC" >/dev/null 2>&1 || true
+      set_state profile "pipecat paste"
+      if paste_alive; then set_state enabled on; set_state hearing on; set_state mode recording; else set_state hearing off; set_state mode idle; fi
+      ;;
+  esac
+
+  if curl -sf "$PIG_IO/status" >/dev/null 2>&1 && ! pigio_consistent; then
+    curl -sf -X POST "$PIG_IO/new-session" >/dev/null 2>&1 || true
+  fi
+}
+
+reset_all() {
+  stop_paste
+  systemctl --user stop "$PIPESVC" >/dev/null 2>&1 || true
+  set_state enabled off; set_state hearing off; set_state mode off
+}
+
+switch_profile() {
+  case "${1:-}" in
+    pig-io|pipecat-pig-io|"pipecat pig-io") set_state profile "pipecat pig-io"; set_state enabled on ;;
+    paste|pipecat-paste|"pipecat paste") set_state profile "pipecat paste"; set_state enabled off ;;
+    *) echo "usage: pig-voice switch pig-io|paste" >&2; exit 2 ;;
+  esac
+  reconcile
+}
+
+case "${1:-status}" in
+  status) reconcile; state_json ;;
+  reconcile|doctor) reconcile ;;
+  reset) reset_all ;;
+  switch) switch_profile "${2:-}" ;;
+  paste-toggle) reconcile; flock -n "$PASTE_LOCK" /home/bot/bin/pipecat-paste-toggle ; reconcile ;;
+  model-switched) reconcile ;;
+  *) echo "usage: pig-voice status|reconcile|reset|switch pig-io|paste|paste-toggle|model-switched" >&2; exit 2 ;;
+esac
