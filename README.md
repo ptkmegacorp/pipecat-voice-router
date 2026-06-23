@@ -1,6 +1,6 @@
 # Pipecat Voice Router
 
-Local voice control for i3/Linux: mic → VAD → Moonshine STT → routed commands or local LLM fallback.
+Local voice control for i3/Linux: standalone mic routing to Pig/Pig-IO, plus universal push-to-talk transcript paste.
 
 E2E routing map: [ROUTING.md](../pig-io/ROUTING.md).
 
@@ -12,7 +12,9 @@ pipecat-voice-router/
 └── voice-router-pipecat-standalone/ # Pipecat app, venv, start/stop scripts
 ```
 
-## Pipeline
+## Pipelines
+
+Pig/Pig-IO voice routing:
 
 ```text
 local microphone
@@ -21,6 +23,17 @@ local microphone
 → Moonshine STT
 → exact + fuzzy router
 → i3/overlay action OR Pig LLM fallback (Firefox/browser requests use fallback)
+```
+
+Universal paste mode:
+
+```text
+Ctrl+Space
+→ record focused-desktop utterance
+→ Ctrl+Space again
+→ transcribe locally
+→ clipboard paste transcript into focused input
+→ restore previous clipboard
 ```
 
 ## Setup

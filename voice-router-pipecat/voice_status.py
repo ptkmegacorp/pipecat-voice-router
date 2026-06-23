@@ -5,7 +5,7 @@ Usage:
   voice_status.py enabled on|off
   voice_status.py hearing on|off
   voice_status.py mode idle|listening|thinking|speaking|error
-  voice_status.py profile "pipecat pig-io"|"pipecat pi"
+  voice_status.py profile "pipecat pig-io"|"pipecat paste"
   voice_status.py mic auto-usb|NAME
   voice_status.py show
 """
@@ -54,7 +54,7 @@ def main(argv):
             state["enabled"] = False
             state["hearing"] = False
     elif key == "profile":
-        if value not in {"pipecat pig-io", "pipecat pi"}:
+        if value not in {"pipecat pig-io", "pipecat paste"}:
             raise SystemExit(f"unknown profile: {value}")
         state["profile"] = value
     elif key == "mic":
