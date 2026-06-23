@@ -26,10 +26,13 @@ stop_voice_async() {
 }
 
 stop_voice_for_mic() {
-  if service_active || systemctl --user is-failed --quiet "$PIPESVC" 2>/dev/null; then
-    systemctl --user kill -s SIGKILL "$PIPESVC" >/dev/null 2>&1 || true
-    systemctl --user reset-failed "$PIPESVC" >/dev/null 2>&1 || true
+  # arecord legitimately holds the mic between Ctrl+Space presses.
+  paste_alive && return 0
+  if ! service_active && ! systemctl --user is-failed --quiet "$PIPESVC" 2>/dev/null; then
+    return 0
   fi
+  systemctl --user kill -s SIGKILL "$PIPESVC" >/dev/null 2>&1 || true
+  systemctl --user reset-failed "$PIPESVC" >/dev/null 2>&1 || true
   local i
   for i in $(seq 1 30); do
     service_active || break
