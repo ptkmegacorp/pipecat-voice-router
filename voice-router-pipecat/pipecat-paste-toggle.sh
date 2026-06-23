@@ -17,14 +17,34 @@ log() { printf '%s %s\n' "$(date -Is)" "$*" >> "$LOG_FILE"; }
 set_status() { "$STATUS" "$@" >/dev/null 2>&1 || true; }
 notify() { notify-send "Pipecat paste" "$1" >/dev/null 2>&1 || true; }
 
+active_window_class() {
+  local wid
+  wid="$(xdotool getactivewindow 2>/dev/null || true)"
+  [ -n "$wid" ] || return 0
+  xprop -id "$wid" WM_CLASS 2>/dev/null | sed -E 's/.*= //; s/"//g; s/,.*//; s/.*/\L&/'
+}
+
 paste_text() {
   local text="$1"
   local old_clip=""
+  local old_primary=""
+  local klass=""
   old_clip="$(xclip -selection clipboard -o 2>/dev/null || true)"
+  old_primary="$(xclip -selection primary -o 2>/dev/null || true)"
   printf '%s' "$text" | xclip -selection clipboard -i
-  xdotool key ctrl+v
-  sleep 0.25
+  printf '%s' "$text" | xclip -selection primary -i
+  klass="$(active_window_class)"
+  case "$klass" in
+    *urxvt*|*rxvt*|*xterm*|*terminal*)
+      xdotool key --clearmodifiers Shift+Insert
+      ;;
+    *)
+      xdotool key --clearmodifiers ctrl+v
+      ;;
+  esac
+  sleep 1
   printf '%s' "$old_clip" | xclip -selection clipboard -i
+  printf '%s' "$old_primary" | xclip -selection primary -i
 }
 
 finish_recording() {
