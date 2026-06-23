@@ -17,11 +17,22 @@ log() { printf '%s %s\n' "$(date -Is)" "$*" >> "$LOG_FILE"; }
 set_status() { "$STATUS" "$@" >/dev/null 2>&1 || true; }
 notify() { notify-send "Pipecat paste" "$1" >/dev/null 2>&1 || true; }
 
+active_window_id() {
+  xdotool getactivewindow 2>/dev/null || true
+}
+
 active_window_class() {
   local wid
-  wid="$(xdotool getactivewindow 2>/dev/null || true)"
+  wid="$(active_window_id)"
   [ -n "$wid" ] || return 0
   xprop -id "$wid" WM_CLASS 2>/dev/null | sed -E 's/.*= //; s/"//g; s/,.*//; s/.*/\L&/'
+}
+
+active_window_title() {
+  local wid
+  wid="$(active_window_id)"
+  [ -n "$wid" ] || return 0
+  xdotool getwindowname "$wid" 2>/dev/null | tr '[:upper:]' '[:lower:]'
 }
 
 paste_text() {
@@ -29,11 +40,23 @@ paste_text() {
   local old_clip=""
   local old_primary=""
   local klass=""
+  local title=""
   old_clip="$(xclip -selection clipboard -o 2>/dev/null || true)"
   old_primary="$(xclip -selection primary -o 2>/dev/null || true)"
   printf '%s' "$text" | xclip -selection clipboard -i
   printf '%s' "$text" | xclip -selection primary -i
   klass="$(active_window_class)"
+  title="$(active_window_title)"
+  log "paste target class=$klass title=$title"
+  if [[ "$title" == *pig-io-overlay* ]]; then
+    # pig-io overlay is a raw terminal TUI; bracketed paste from the terminal
+    # does not reliably reach its Input widget, so type the transcript directly.
+    xdotool type --clearmodifiers --delay 1 -- "$text"
+    sleep 0.2
+    printf '%s' "$old_clip" | xclip -selection clipboard -i
+    printf '%s' "$old_primary" | xclip -selection primary -i
+    return
+  fi
   case "$klass" in
     *urxvt*|*rxvt*|*xterm*|*terminal*)
       xdotool key --clearmodifiers Shift+Insert
