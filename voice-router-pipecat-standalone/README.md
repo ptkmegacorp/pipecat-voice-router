@@ -7,8 +7,8 @@ E2E routing map: [ROUTING.md](../../pig-io/ROUTING.md).
 It is separate from the Pig extension. It uses Pipecat as the framework:
 
 ```text
-local microphone
-→ Pipecat LocalAudioTransport
+Kokoro playback → PipeWire WebRTC AEC sink → HDMI speakers
+USB microphone → PipeWire WebRTC AEC source → `parec` → Pipecat
 → Silero VAD
 → Moonshine STT
 → exact + fuzzy router
@@ -144,6 +144,25 @@ export VOICE_ROUTER_LLM_MODEL=gemma-4-12b-it-qat-mtp-local
 
 Set overrides in `~/.config/systemd/user/pipecat-voice.service.d/override.conf` for persistence.
 
+## Acoustic echo cancellation
+
+The service owns a PipeWire-Pulse `module-echo-cancel` instance using WebRTC AEC. `pulse_aec.py` binds the physical USB microphone and HDMI output, exposes `pipecat_aec_source` / `pipecat_aec_sink`, and removes the module when the service stops. Kokoro must play through the AEC sink so the microphone filter receives the exact render reference.
+
+```bash
+pulse_aec.py status   # through the standalone venv
+pactl list short sources | grep pipecat_aec
+pactl list short sinks | grep pipecat_aec
+```
+
+Optional physical-device overrides:
+
+```bash
+VOICE_ROUTER_AEC_SOURCE_MASTER=alsa_input...
+VOICE_ROUTER_AEC_SINK_MASTER=alsa_output...
+```
+
+Requires `pactl`, `parec`, PipeWire's echo-cancel module, and `aec/libspa-aec-webrtc`.
+
 ## TTS
 
 TTS is off by default. Say **`turn on tts`** (or `enable text to speech`) to enable it; the setting persists in `~/.cache/pipecat-voice/tts.json`. Say `turn off tts` to disable it.
@@ -156,7 +175,9 @@ Useful overrides:
 VOICE_ROUTER_TTS_CHUNK_CHARS=180
 VOICE_ROUTER_TTS_PAUSE_SECONDS=0.65
 VOICE_ROUTER_TTS_VOICE=af_heart
-VOICE_ROUTER_TTS_SPEED=1.0
+VOICE_ROUTER_TTS_SPEED=1.1
+VOICE_ROUTER_TTS_KEEP_LEADING_MS=40
+VOICE_ROUTER_TTS_KEEP_TRAILING_MS=100
 VOICE_ROUTER_KOKORO_PYTHON=/home/bot/doc-tts/.venv/bin/python
 ```
 

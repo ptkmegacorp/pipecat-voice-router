@@ -35,21 +35,20 @@ from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.moonshine.stt import MoonshineSTTService, MoonshineSTTSettings, Model
-from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
 from pipecat.workers.runner import WorkerRunner
 
 ROOT = Path(__file__).resolve().parent
 ROUTING_DIR = ROOT.parent / "voice-router-pipecat"
 if str(ROUTING_DIR) not in sys.path:
     sys.path.insert(0, str(ROUTING_DIR))
-from routing import route_text  # noqa: E402
-from audio_input import (  # noqa: E402
-    INPUT_CHANNELS,
-    INPUT_SAMPLE_RATE,
-    discover_input_device_index,
-    input_device_name,
-    list_input_devices,
+from pulse_aec import (  # noqa: E402
+    AEC_SINK_NAME,
+    AEC_SOURCE_NAME,
+    PulseAECInputTransport,
+    cleanup_echo_cancel,
+    setup_echo_cancel,
 )
+from routing import route_text  # noqa: E402
 
 STATUS = ROUTING_DIR / "voice_status.py"
 CONFIG = json.loads((ROUTING_DIR / "router_config.json").read_text())
@@ -378,9 +377,18 @@ class PigResponseSpeaker:
                     self._speaking.set()
                     set_status("mode", "speaking")
                     logger.info(
-                        f"Kokoro playback started turn={event.get('turn')} seq={event.get('seq')} chars={event.get('chars')}"
+                        f"Kokoro playback started turn={event.get('turn')} seq={event.get('seq')} "
+                        f"chars={event.get('chars')} audio_ms={event.get('audio_ms')} "
+                        f"trimmed_ms={event.get('trimmed_ms')} synth_ms={event.get('synth_ms')} "
+                        f"handoff_ms={event.get('handoff_ms')} "
+                        f"leading_ms={event.get('leading_ms')} trailing_ms={event.get('trailing_ms')}"
                     )
                 elif kind == "play_end":
+                    logger.info(
+                        f"Kokoro playback ended turn={event.get('turn')} seq={event.get('seq')} "
+                        f"audio_ms={event.get('audio_ms')} playback_ms={event.get('playback_ms')} "
+                        f"cancelled={event.get('cancelled')}"
+                    )
                     self._recent_speech = self._current_speech
                     self._recent_speech_at = time.monotonic()
                     self._current_speech = ""
@@ -389,7 +397,14 @@ class PigResponseSpeaker:
                 elif kind == "error":
                     logger.error(f"Kokoro worker error: {event}")
                 elif kind == "synthesized":
-                    logger.debug(f"Kokoro worker synthesized: {event}")
+                    logger.info(
+                        f"Kokoro synthesized turn={event.get('turn')} seq={event.get('seq')} "
+                        f"chars={event.get('chars')} audio_ms={event.get('audio_ms')} "
+                        f"original_audio_ms={event.get('original_audio_ms')} "
+                        f"trimmed_ms={event.get('trimmed_ms')} synth_ms={event.get('synth_ms')} "
+                        f"leading_ms={event.get('leading_ms')} "
+                        f"trailing_ms={event.get('trailing_ms')}"
+                    )
             except Exception as exc:
                 logger.warning(f"Invalid Kokoro worker event {line.strip()!r}: {exc}")
 
@@ -791,6 +806,8 @@ class VoiceRouterProcessor(FrameProcessor):
 async def main():
     global SPEAKER
     PID_FILE.write_text(str(os.getpid()))
+    aec = setup_echo_cancel()
+    os.environ["DOC_TTS_SINK"] = AEC_SINK_NAME
     SPEAKER = PigResponseSpeaker()
     SPEAKER.start()
     set_status("profile", "pipecat pig-io")
@@ -809,29 +826,9 @@ async def main():
 
     signal.signal(signal.SIGTERM, shutdown)
 
-    input_device_index = discover_input_device_index(logger=logger)
-    device_label = input_device_name(input_device_index)
-    logger.info(f"Using input_device_index={input_device_index} ({device_label})")
+    device_label = f"WebRTC AEC: {aec['source_master']}"
     set_status("mic", device_label)
-    if input_device_index is None:
-        devices = list_input_devices()
-        device_lines = ", ".join(
-            f"[{d['index']}] {d['name']}{'' if d['opens'] else ' (cannot open)'}"
-            for d in devices
-        ) or "none"
-        msg = f"no working microphone found; devices: {device_lines}"
-        logger.error(msg)
-        set_status("mode", "error")
-        notify(msg)
-        raise SystemExit(1)
-    transport = LocalAudioTransport(
-        LocalAudioTransportParams(
-            audio_in_enabled=True,
-            audio_in_sample_rate=INPUT_SAMPLE_RATE,
-            audio_in_channels=INPUT_CHANNELS,
-            input_device_index=input_device_index,
-        )
-    )
+    audio_input = PulseAECInputTransport(AEC_SOURCE_NAME)
     audio_debug = AudioDebugProcessor()
     resampler = ResampleTo16kProcessor()
     vad = VADProcessor(
@@ -848,7 +845,7 @@ async def main():
     stt = MoonshineSTTService(settings=MoonshineSTTSettings(model=MOONSHINE_MODEL))
     logger.info(f"Moonshine STT model={MOONSHINE_MODEL}")
     router = VoiceRouterProcessor()
-    pipeline = Pipeline([transport.input(), audio_debug, resampler, vad, vad_status, stt, router])
+    pipeline = Pipeline([audio_input, audio_debug, resampler, vad, vad_status, stt, router])
     # Always-on mic listener: Pipecat defaults to a 5m idle timeout on UserSpeakingFrame
     # and will exit even while audio is flowing. Disable unless explicitly configured.
     idle_timeout = os.environ.get("VOICE_ROUTER_IDLE_TIMEOUT_SECS", "")
@@ -860,6 +857,7 @@ async def main():
         await runner.run()
     finally:
         SPEAKER.stop()
+        cleanup_echo_cancel()
         set_status("enabled", "off")
         try:
             PID_FILE.unlink()

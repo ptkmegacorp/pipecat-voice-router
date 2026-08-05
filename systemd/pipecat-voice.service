@@ -1,8 +1,8 @@
 [Unit]
 Description=Pipecat standalone voice router
 Documentation=file:/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/README.md
-After=pig-io.service llama-server.service network-online.target
-Wants=pig-io.service
+After=pig-io.service llama-server.service pipewire.service pipewire-pulse.service network-online.target
+Wants=pig-io.service pipewire.service pipewire-pulse.service
 PartOf=voice-stack.target
 
 [Service]
@@ -12,16 +12,20 @@ Environment=HOME=/home/bot
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=DISPLAY=:0
 Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=VOICE_ROUTER_TTS_SPEED=1.1
+Environment=VOICE_ROUTER_TTS_KEEP_LEADING_MS=40
+Environment=VOICE_ROUTER_TTS_KEEP_TRAILING_MS=100
+ExecStartPre=-/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/.venv/bin/python pulse_aec.py cleanup
 ExecStart=/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/.venv/bin/python app.py
 ExecStartPost=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py enabled on
 ExecStartPost=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py mode idle
+ExecStopPost=-/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/.venv/bin/python pulse_aec.py cleanup
 ExecStopPost=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py enabled off
-TimeoutStopSec=10
+TimeoutStopSec=15
+KillSignal=SIGINT
 KillMode=mixed
 Restart=on-failure
 RestartSec=5
-Environment="VOICE_ROUTER_INPUT_DEVICE_MATCH=USB Composite Device,USB Audio"
-Environment=VOICE_ROUTER_INPUT_DEVICE_EXCLUDE=hdmi,nvidia,monitor,spdif
 
 [Install]
 WantedBy=default.target

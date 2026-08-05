@@ -12,12 +12,15 @@ else
 fi
 
 "$ROUTER_DIR/voice_status.py" show
-if [ -r "$HOME/.cache/pipecat-voice/last-input-device.json" ]; then
-  python3 - <<'PY' "$HOME/.cache/pipecat-voice/last-input-device.json"
-import json, sys
-d = json.load(open(sys.argv[1]))
-print(f"mic: [{d.get('index')}] {d.get('name', 'unknown')}")
-PY
+if pactl list short sources 2>/dev/null | grep -q $'\tpipecat_aec_source\t'; then
+  echo "aec source: pipecat_aec_source"
+else
+  echo "aec source: unavailable"
+fi
+if pactl list short sinks 2>/dev/null | grep -q $'\tpipecat_aec_sink\t'; then
+  echo "aec sink: pipecat_aec_sink"
+else
+  echo "aec sink: unavailable"
 fi
 for p in 8091 8090 8088 8080; do
   models=$(curl -s --max-time 1 "http://127.0.0.1:$p/v1/models" 2>/dev/null || true)

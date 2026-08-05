@@ -17,8 +17,8 @@ pipecat-voice-router/
 Pig/Pig-IO voice routing:
 
 ```text
-local microphone
-→ Pipecat LocalAudioTransport
+Kokoro playback → PipeWire WebRTC AEC sink → HDMI speakers
+USB microphone → PipeWire WebRTC AEC source → Pipecat
 → Silero VAD
 → Moonshine STT
 → exact + fuzzy router
@@ -38,7 +38,7 @@ Ctrl+Space
 
 ## Setup
 
-Requires a local [Pipecat](https://github.com/pipecat-ai/pipecat) checkout and Python venv in `voice-router-pipecat-standalone/.venv`.
+Requires a local [Pipecat](https://github.com/pipecat-ai/pipecat) checkout, Python venv in `voice-router-pipecat-standalone/.venv`, and PipeWire-Pulse tools (`pactl`, `parec`) with WebRTC echo cancellation (`libpipewire-module-echo-cancel`, `libspa-aec-webrtc`).
 
 Example:
 
@@ -89,12 +89,16 @@ See `voice-router-pipecat/router_config.json`. Examples:
 | `VOICE_ROUTER_MOONSHINE_MODEL` | `tiny-streaming` | Moonshine STT model |
 | `VOICE_ROUTER_FUZZY_THRESHOLD` | `85` | Fuzzy route match score |
 | `VOICE_ROUTER_LLM_MAX_TOKENS` | `64` | LLM fallback response length |
-| `VOICE_ROUTER_INPUT_DEVICE_MATCH` | `USB Composite Device,USB Audio` | Substrings to find mic (survives reboot) |
-| `VOICE_ROUTER_INPUT_DEVICE_EXCLUDE` | `hdmi,nvidia,monitor,spdif` | Skip output/HDMI pseudo-devices |
-| `VOICE_ROUTER_INPUT_DEVICE_INDEX` | _(empty)_ | Optional numeric override only |
+| `VOICE_ROUTER_AEC_SOURCE_MASTER` | first physical USB source | Optional PipeWire source override |
+| `VOICE_ROUTER_AEC_SINK_MASTER` | first HDMI sink | Optional PipeWire sink override |
+| `VOICE_ROUTER_AEC_SOURCE_NAME` | `pipecat_aec_source` | Clean virtual microphone source |
+| `VOICE_ROUTER_AEC_SINK_NAME` | `pipecat_aec_sink` | Referenced Kokoro playback sink |
 | `VOICE_ROUTER_TTS_CHUNK_CHARS` | `180` | Maximum streamed text before an unfinished sentence is queued for Kokoro |
 | `VOICE_ROUTER_TTS_PAUSE_SECONDS` | `0.65` | Maximum initial buffering interval for a usable speech chunk |
 | `VOICE_ROUTER_KOKORO_PYTHON` | `/home/bot/doc-tts/.venv/bin/python` | Python used by the persistent Kokoro-82M worker |
+| `VOICE_ROUTER_TTS_SPEED` | `1.1` in the systemd unit | Kokoro speaking-rate multiplier |
+| `VOICE_ROUTER_TTS_KEEP_LEADING_MS` | `40` | Low-energy margin retained before each synthesized chunk |
+| `VOICE_ROUTER_TTS_KEEP_TRAILING_MS` | `100` | Low-energy margin retained after each synthesized chunk |
 
 ## i3bar status
 
