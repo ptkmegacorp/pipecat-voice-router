@@ -7,11 +7,14 @@ Flow:
 import asyncio
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 import audioop
+from difflib import SequenceMatcher
 from pathlib import Path
 
 import requests
@@ -60,7 +63,14 @@ MOONSHINE_MODEL = os.environ.get("VOICE_ROUTER_MOONSHINE_MODEL", Model.TINY_STRE
 LLM_MAX_TOKENS = int(os.environ.get("VOICE_ROUTER_LLM_MAX_TOKENS", "64"))
 PIG_IO_URL = os.environ.get("VOICE_ROUTER_PIG_IO_URL", "http://127.0.0.1:8765").rstrip("/")
 PIG_IO_TIMEOUT = float(os.environ.get("VOICE_ROUTER_PIG_IO_TIMEOUT", "5"))
+KOKORO_PYTHON = os.environ.get("VOICE_ROUTER_KOKORO_PYTHON", "/home/bot/doc-tts/.venv/bin/python")
+KOKORO_WORKER = Path(os.environ.get("VOICE_ROUTER_KOKORO_WORKER", ROOT / "kokoro_worker.py"))
+TTS_STATE_FILE = Path(os.environ.get("VOICE_ROUTER_TTS_STATE", Path.home() / ".cache/pipecat-voice/tts.json"))
+TTS_MAX_CHARS = int(os.environ.get("VOICE_ROUTER_TTS_MAX_CHARS", "2400"))
+TTS_CHUNK_CHARS = int(os.environ.get("VOICE_ROUTER_TTS_CHUNK_CHARS", "180"))
+TTS_PAUSE_SECONDS = float(os.environ.get("VOICE_ROUTER_TTS_PAUSE_SECONDS", "0.65"))
 WM_MSG = ["/home/bot/.config/i3/bin/wm-msg.sh"]
+SPEAKER = None
 
 
 def wm(*args: str, check: bool = False) -> None:
@@ -118,6 +128,308 @@ def notify(msg: str):
         subprocess.run(["notify-send", "Pipecat voice", msg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
     except FileNotFoundError:
         pass
+
+
+class SpeechChunker:
+    """Turn streamed model deltas into prompt sentence-sized speech chunks."""
+
+    def __init__(self):
+        self.buffer = ""
+        self.accepted_chars = 0
+        self.emitted_chunks = 0
+
+    def add(self, delta: str) -> None:
+        remaining = max(0, TTS_MAX_CHARS - self.accepted_chars)
+        addition = delta[:remaining]
+        self.buffer += addition
+        self.accepted_chars += len(addition)
+
+    def take_ready(self, force: bool = False, paused: bool = False) -> list[str]:
+        chunks: list[str] = []
+        while self.buffer:
+            sentences = list(re.finditer(r"(?<!\d)[.!?](?:[\"')\]]*)\s+", self.buffer))
+            if sentences:
+                end = sentences[0].end()
+                if self.emitted_chunks and not force:
+                    for boundary in sentences:
+                        end = boundary.end()
+                        if len(self.clean(self.buffer[:end])) >= 32:
+                            break
+                    if len(self.clean(self.buffer[:end])) < 32:
+                        if len(self.buffer) >= TTS_CHUNK_CHARS:
+                            hard_end = self.buffer.rfind(" ", 0, TTS_CHUNK_CHARS + 1)
+                            end = hard_end if hard_end > end else TTS_CHUNK_CHARS
+                        else:
+                            break
+            elif len(self.buffer) >= TTS_CHUNK_CHARS:
+                end = self.buffer.rfind(" ", 0, TTS_CHUNK_CHARS + 1)
+                end = end if end > 0 else TTS_CHUNK_CHARS
+            elif force or (paused and len(self.buffer.strip()) >= 40):
+                end = len(self.buffer)
+            else:
+                break
+            raw, self.buffer = self.buffer[:end], self.buffer[end:]
+            clean = self.clean(raw)
+            if clean:
+                chunks.append(clean)
+                self.emitted_chunks += 1
+        return chunks
+
+    @staticmethod
+    def clean(text: str) -> str:
+        text = re.sub(r"```.*?```", " Code omitted. ", text, flags=re.DOTALL)
+        text = re.sub(r"\[([^]]+)]\([^)]+\)", r"\1", text)
+        text = re.sub(r"[`*_#>]", "", text)
+        return " ".join(text.split()).strip()
+
+
+class PigResponseSpeaker:
+    """Stream Pig deltas through a persistent, warmed Kokoro worker."""
+
+    def __init__(self):
+        self._enabled = self._load_enabled()
+        self._stop = threading.Event()
+        self._speaking = threading.Event()
+        self._lock = threading.RLock()
+        self._thread = threading.Thread(target=self._listen, name="pig-tts-events", daemon=True)
+        self._worker: subprocess.Popen | None = None
+        self._turn = 0
+        self._sequence = 0
+        self._chunker = SpeechChunker()
+        self._pause_timer: threading.Timer | None = None
+        self._muted_turn = False
+        self._saw_delta = False
+        self._current_speech = ""
+        self._recent_speech = ""
+        self._recent_speech_at = 0.0
+        self._awaiting_response = False
+
+    def _load_enabled(self) -> bool:
+        try:
+            return bool(json.loads(TTS_STATE_FILE.read_text()).get("enabled", False))
+        except Exception:
+            return False
+
+    def start(self):
+        with self._lock:
+            self._start_worker()
+        self._thread.start()
+        logger.info(f"Kokoro streaming TTS starting; enabled={self._enabled} worker={KOKORO_WORKER}")
+
+    def _start_worker(self):
+        self._worker = subprocess.Popen(
+            [KOKORO_PYTHON, "-u", str(KOKORO_WORKER)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        threading.Thread(target=self._read_worker, name="kokoro-worker-events", daemon=True).start()
+        threading.Thread(target=self._read_worker_errors, name="kokoro-worker-errors", daemon=True).start()
+
+    def stop(self):
+        self._stop.set()
+        with self._lock:
+            self._cancel_timer()
+            self._send_worker({"op": "shutdown"})
+            if self._worker and self._worker.poll() is None:
+                try:
+                    self._worker.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self._worker.terminate()
+
+    @property
+    def is_speaking(self) -> bool:
+        return self._speaking.is_set()
+
+    def is_likely_echo(self, text: str) -> bool:
+        """Recognize a recent Kokoro sentence coming back through the room mic."""
+        if not self._speaking.is_set() and time.monotonic() - self._recent_speech_at > 2.0:
+            return False
+        heard = " ".join(re.findall(r"[a-z0-9]+", text.lower()))
+        spoken = " ".join(re.findall(r"[a-z0-9]+", (self._current_speech or self._recent_speech).lower()))
+        if not heard or not spoken:
+            return False
+        return SequenceMatcher(None, heard, spoken).ratio() >= 0.55
+
+    def set_enabled(self, enabled: bool):
+        self._enabled = enabled
+        TTS_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = TTS_STATE_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps({"enabled": enabled}) + "\n")
+        tmp.replace(TTS_STATE_FILE)
+        if not enabled:
+            self.interrupt()
+
+    def interrupt(self):
+        """Stop current playback and discard queued speech for this Pig turn."""
+        with self._lock:
+            logger.info(f"Kokoro TTS interrupting turn={self._turn}")
+            self._muted_turn = True
+            self._chunker = SpeechChunker()
+            self._cancel_timer()
+            self._send_worker({"op": "cancel", "through": self._turn})
+            self._speaking.clear()
+
+    def speak(self, text: str, force: bool = False):
+        if not (force or self._enabled):
+            return
+        with self._lock:
+            self._begin_turn()
+            self._chunker.add(text)
+            self._queue_chunks(self._chunker.take_ready(force=True))
+
+    def _begin_turn(self):
+        self._send_worker({"op": "cancel", "through": self._turn})
+        self._turn += 1
+        self._sequence = 0
+        self._chunker = SpeechChunker()
+        self._muted_turn = not self._enabled
+        self._saw_delta = False
+        self._cancel_timer()
+
+    def _on_user_prompt(self):
+        with self._lock:
+            self._awaiting_response = True
+            self.interrupt()
+
+    def _on_turn_start(self):
+        with self._lock:
+            if self._awaiting_response:
+                self._begin_turn()
+                self._awaiting_response = False
+
+    def _on_delta(self, delta: str):
+        with self._lock:
+            if self._muted_turn or not self._enabled:
+                return
+            if not self._saw_delta:
+                logger.info(f"Kokoro TTS first Pig delta turn={self._turn}")
+            self._saw_delta = True
+            self._chunker.add(delta)
+            self._queue_chunks(self._chunker.take_ready())
+            self._schedule_pause_flush()
+
+    def _on_agent_end(self, data: dict):
+        logger.info(f"Kokoro TTS Pig agent_end turn={self._turn}")
+        with self._lock:
+            self._cancel_timer()
+            if self._muted_turn or not self._enabled or not data.get("speak", False):
+                return
+            if not self._saw_delta:
+                self._chunker.add(str(data.get("text", "")))
+            self._queue_chunks(self._chunker.take_ready(force=True))
+
+    def _queue_chunks(self, chunks: list[str]):
+        for text in chunks:
+            self._sequence += 1
+            logger.info(f"Kokoro TTS queued turn={self._turn} seq={self._sequence} chars={len(text)}")
+            self._send_worker(
+                {"op": "speak", "turn": self._turn, "seq": self._sequence, "text": text}
+            )
+
+    def _schedule_pause_flush(self):
+        if not self._chunker.buffer.strip():
+            return
+        if self._pause_timer and self._pause_timer.is_alive():
+            return
+        turn = self._turn
+        self._pause_timer = threading.Timer(TTS_PAUSE_SECONDS, self._flush_pause, args=(turn,))
+        self._pause_timer.daemon = True
+        self._pause_timer.start()
+
+    def _flush_pause(self, turn: int):
+        with self._lock:
+            self._pause_timer = None
+            if turn != self._turn or self._muted_turn:
+                return
+            self._queue_chunks(self._chunker.take_ready(paused=True))
+            self._schedule_pause_flush()
+
+    def _cancel_timer(self):
+        if self._pause_timer:
+            self._pause_timer.cancel()
+            self._pause_timer = None
+
+    def _send_worker(self, command: dict):
+        try:
+            if not self._worker or self._worker.poll() is not None:
+                if self._stop.is_set():
+                    return
+                self._start_worker()
+            self._worker.stdin.write(json.dumps(command) + "\n")
+            self._worker.stdin.flush()
+        except Exception as exc:
+            logger.error(f"Kokoro worker command failed: {exc}")
+
+    def _read_worker(self):
+        worker = self._worker
+        if not worker or not worker.stdout:
+            return
+        for line in worker.stdout:
+            try:
+                event = json.loads(line)
+                kind = event.get("event")
+                if kind == "ready":
+                    logger.info(f"Kokoro worker ready on {event.get('device')}")
+                elif kind == "play_start":
+                    self._current_speech = str(event.get("text", ""))
+                    self._speaking.set()
+                    set_status("mode", "speaking")
+                    logger.info(
+                        f"Kokoro playback started turn={event.get('turn')} seq={event.get('seq')} chars={event.get('chars')}"
+                    )
+                elif kind == "play_end":
+                    self._recent_speech = self._current_speech
+                    self._recent_speech_at = time.monotonic()
+                    self._current_speech = ""
+                    self._speaking.clear()
+                    set_status("mode", "idle")
+                elif kind == "error":
+                    logger.error(f"Kokoro worker error: {event}")
+                elif kind == "synthesized":
+                    logger.debug(f"Kokoro worker synthesized: {event}")
+            except Exception as exc:
+                logger.warning(f"Invalid Kokoro worker event {line.strip()!r}: {exc}")
+
+    def _read_worker_errors(self):
+        worker = self._worker
+        if not worker or not worker.stderr:
+            return
+        for line in worker.stderr:
+            logger.debug(f"Kokoro worker: {line.rstrip()}")
+
+    def _listen(self):
+        while not self._stop.is_set():
+            try:
+                with requests.get(f"{PIG_IO_URL}/events", stream=True, timeout=(5, 30)) as response:
+                    response.raise_for_status()
+                    event_type = ""
+                    for line in response.iter_lines(decode_unicode=True):
+                        if self._stop.is_set():
+                            return
+                        if not line:
+                            event_type = ""
+                            continue
+                        if line.startswith("event: "):
+                            event_type = line[7:]
+                        elif line.startswith("data: "):
+                            data = json.loads(line[6:]).get("data", {})
+                            if event_type == "user_prompt":
+                                self._on_user_prompt()
+                            elif event_type == "turn_start":
+                                self._on_turn_start()
+                            elif event_type == "agent_start" and not self._awaiting_response:
+                                with self._lock:
+                                    self._begin_turn()
+                            elif event_type == "text_delta":
+                                self._on_delta(str(data.get("delta", "")))
+                            elif event_type == "agent_end":
+                                self._on_agent_end(data)
+            except Exception as exc:
+                logger.warning(f"Pig TTS event stream disconnected: {exc}")
+                self._stop.wait(2)
 
 
 def get_focused_window():
@@ -314,13 +626,14 @@ def call_local_llm(prompt: str) -> str:
         return f"local LLM error: {e}"
 
 
-def speak(text: str):
+def speak(text: str, force: bool = False):
     if not text:
         return
     print(text, flush=True)
-    if TTS_CMD:
-        set_status("mode", "speaking")
-        subprocess.run([TTS_CMD, text], check=False)
+    if SPEAKER:
+        SPEAKER.speak(text, force=force)
+    elif TTS_CMD:
+        subprocess.Popen([TTS_CMD, text])
 
 
 def execute(action: dict):
@@ -331,7 +644,15 @@ def execute(action: dict):
     logger.info(f"route={action.get('route')} function={action.get('function')} text={action.get('text')!r}")
     fn = action.get("function")
     args = action.get("args", {})
-    if fn == "scroll":
+    if fn == "set_tts":
+        enabled = bool(args.get("enabled"))
+        if not SPEAKER:
+            logger.error("Kokoro TTS is not initialized")
+            return
+        SPEAKER.set_enabled(enabled)
+        notify(f"text to speech {'enabled' if enabled else 'disabled'}")
+        speak(f"Text to speech is {'on' if enabled else 'off'}.", force=True)
+    elif fn == "scroll":
         scroll(args["direction"])
     elif fn == "make_full_screen":
         wm_popen("fullscreen", "toggle")
@@ -355,7 +676,8 @@ def execute(action: dict):
         speak(list_commands())
     elif fn in {"ask_pig", "ask_local_llm"}:
         answer = call_local_llm(args.get("prompt", action.get("text", "")))
-        speak(answer)
+        if answer != "sent to pig":
+            speak(answer)
     else:
         answer = call_local_llm(action.get("text", ""))
         speak(answer)
@@ -426,6 +748,10 @@ class VADStatusProcessor(FrameProcessor):
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if isinstance(frame, VADUserStartedSpeakingFrame):
+            # Do not cancel immediately while audio is playing: the room mic can
+            # hear Kokoro. A non-echo final transcript performs the barge-in.
+            if SPEAKER and not SPEAKER.is_speaking:
+                SPEAKER.interrupt()
             set_status("hearing", "on")
             set_status("mode", "listening")
             logger.info("VAD: user started speaking")
@@ -446,7 +772,12 @@ class VoiceRouterProcessor(FrameProcessor):
         elif isinstance(frame, TranscriptionFrame):
             text = frame.text.strip()
             logger.info(f"transcription frame={text!r}")
+            if text and SPEAKER and SPEAKER.is_likely_echo(text):
+                logger.info("ignoring likely Kokoro echo transcription")
+                return
             if text:
+                if SPEAKER and SPEAKER.is_speaking:
+                    SPEAKER.interrupt()
                 notify(f"heard: {text}")
                 action = route_text(text, {"focused_window": get_focused_window()})
                 if action.get("function") in {"ask_pig", "ask_local_llm"}:
@@ -458,7 +789,10 @@ class VoiceRouterProcessor(FrameProcessor):
 
 
 async def main():
+    global SPEAKER
     PID_FILE.write_text(str(os.getpid()))
+    SPEAKER = PigResponseSpeaker()
+    SPEAKER.start()
     set_status("profile", "pipecat pig-io")
     set_status("enabled", "on")
     set_status("mode", "idle")
@@ -525,6 +859,7 @@ async def main():
     try:
         await runner.run()
     finally:
+        SPEAKER.stop()
         set_status("enabled", "off")
         try:
             PID_FILE.unlink()

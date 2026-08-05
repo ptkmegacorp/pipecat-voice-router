@@ -92,7 +92,9 @@ See `voice-router-pipecat/router_config.json`. Examples:
 | `VOICE_ROUTER_INPUT_DEVICE_MATCH` | `USB Composite Device,USB Audio` | Substrings to find mic (survives reboot) |
 | `VOICE_ROUTER_INPUT_DEVICE_EXCLUDE` | `hdmi,nvidia,monitor,spdif` | Skip output/HDMI pseudo-devices |
 | `VOICE_ROUTER_INPUT_DEVICE_INDEX` | _(empty)_ | Optional numeric override only |
-| `VOICE_ROUTER_TTS_CMD` | _(empty)_ | e.g. `spd-say` for spoken replies |
+| `VOICE_ROUTER_TTS_CHUNK_CHARS` | `180` | Maximum streamed text before an unfinished sentence is queued for Kokoro |
+| `VOICE_ROUTER_TTS_PAUSE_SECONDS` | `0.65` | Maximum initial buffering interval for a usable speech chunk |
+| `VOICE_ROUTER_KOKORO_PYTHON` | `/home/bot/doc-tts/.venv/bin/python` | Python used by the persistent Kokoro-82M worker |
 
 ## i3bar status
 

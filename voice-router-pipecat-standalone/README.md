@@ -146,17 +146,19 @@ Set overrides in `~/.config/systemd/user/pipecat-voice.service.d/override.conf` 
 
 ## TTS
 
-By default, TTS command is blank. The app prints LLM answers to the log/stdout.
+TTS is off by default. Say **`turn on tts`** (or `enable text to speech`) to enable it; the setting persists in `~/.cache/pipecat-voice/tts.json`. Say `turn off tts` to disable it.
 
-To enable simple command-line TTS:
+Pig `text_delta` events are split at sentence boundaries and sent to a persistent, pre-warmed **Kokoro-82M** worker, so playback can begin before Pig finishes its response. A 180-character limit or a 650 ms stream pause also flushes unfinished sentences; `agent_end` flushes the remainder. Synthesis and playback use separate queues, and new microphone speech cancels queued/current audio. The router limits each reply to 2,400 spoken characters and omits fenced code blocks. (Parakeet is ASR; Kokoro is the installed 82M TTS model.)
+
+Useful overrides:
 
 ```bash
-export VOICE_ROUTER_TTS_CMD=spd-say
-# or
-export VOICE_ROUTER_TTS_CMD=espeak
+VOICE_ROUTER_TTS_CHUNK_CHARS=180
+VOICE_ROUTER_TTS_PAUSE_SECONDS=0.65
+VOICE_ROUTER_TTS_VOICE=af_heart
+VOICE_ROUTER_TTS_SPEED=1.0
+VOICE_ROUTER_KOKORO_PYTHON=/home/bot/doc-tts/.venv/bin/python
 ```
-
-Then restart: `systemctl --user restart pipecat-voice`
 
 ## i3bar status
 

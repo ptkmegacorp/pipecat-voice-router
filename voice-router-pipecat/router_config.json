@@ -1,8 +1,36 @@
 {
   "framework": "pipecat",
   "stt_notes": "Moonshine/Moon-whatever small streaming STT is a good candidate, but STT model is not locked yet.",
-  "tts_default": true,
+  "tts_default": false,
   "routes": [
+    {
+      "name": "enable_tts",
+      "description": "Enable Kokoro text-to-speech for completed Pig responses.",
+      "match": [
+        "turn on tts",
+        "turn on text to speech",
+        "enable tts",
+        "enable text to speech"
+      ],
+      "route": "voice_control",
+      "function": "set_tts",
+      "args": {"enabled": true},
+      "tts": true
+    },
+    {
+      "name": "disable_tts",
+      "description": "Disable text-to-speech for Pig responses.",
+      "match": [
+        "turn off tts",
+        "turn off text to speech",
+        "disable tts",
+        "disable text to speech"
+      ],
+      "route": "voice_control",
+      "function": "set_tts",
+      "args": {"enabled": false},
+      "tts": true
+    },
     {
       "name": "scroll_down",
       "description": "Scroll the focused window down. urxvt/terminal uses Shift+PageDown scrollback; other apps use PageDown.",

@@ -115,19 +115,28 @@ def route_text(text: str, context: dict | None = None) -> dict:
     prepared = prepare_route_text(raw)
     ctx = context if context is not None else {}
 
+    # Prefer every exact route before accepting a fuzzy match. Otherwise a new
+    # phrase such as "turn off tts" can be swallowed by an earlier, similar
+    # route such as "turn on tts".
+    for route in CONFIG["routes"]:
+        matched, score, _ = _route_match(route, prepared)
+        if matched and score == 100.0:
+            return {**route, "text": raw, "context": ctx}
+
+    for route in CONFIG["routes"]:
+        prefix_action = _route_prefix(route, prepared, raw)
+        if prefix_action:
+            return {**prefix_action, "text": raw, "context": ctx}
+
     for route in CONFIG["routes"]:
         matched, score, phrase = _route_match(route, prepared)
         if matched:
             action = {**route, "text": raw, "context": ctx}
-            if phrase and score < 100.0:
+            if phrase:
                 action["match_method"] = "fuzzy"
                 action["match_score"] = round(score, 1)
                 action["match_phrase"] = phrase
             return action
-
-        prefix_action = _route_prefix(route, prepared, raw)
-        if prefix_action:
-            return {**prefix_action, "text": raw, "context": ctx}
 
     fallback = CONFIG["fallback"]
     return {**fallback, "args": {"prompt": raw}, "text": raw, "context": ctx}
