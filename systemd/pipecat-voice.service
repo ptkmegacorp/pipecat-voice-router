@@ -15,6 +15,11 @@ Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=VOICE_ROUTER_TTS_SPEED=1.1
 Environment=VOICE_ROUTER_TTS_KEEP_LEADING_MS=40
 Environment=VOICE_ROUTER_TTS_KEEP_TRAILING_MS=100
+Environment=VOICE_ROUTER_VAD_MIN_VOLUME=0.006
+Environment=VOICE_ROUTER_MOONSHINE_MODEL=small-streaming
+Environment=VOICE_ROUTER_BARGE_MIN_VAD_SECS=0.55
+Environment=VOICE_ROUTER_BARGE_MIN_RMS=0.04
+Environment=FRONTIER_THINKING_REPEAT=0
 ExecStartPre=-/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/.venv/bin/python pulse_aec.py cleanup
 ExecStart=/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/.venv/bin/python app.py
 ExecStartPost=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py enabled on

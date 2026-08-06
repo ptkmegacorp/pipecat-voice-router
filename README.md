@@ -21,6 +21,7 @@ Kokoro playback → PipeWire WebRTC AEC sink → HDMI speakers
 USB microphone → PipeWire WebRTC AEC source → Pipecat
 → Silero VAD
 → Moonshine STT
+→ Pipecat UserTurnProcessor + local Smart Turn v3
 → exact + fuzzy router
 → i3/overlay action OR Pig LLM fallback (Firefox/browser requests use fallback)
 ```
@@ -81,12 +82,20 @@ See `voice-router-pipecat/router_config.json`. Examples:
 - list all routed commands
 - anything else (including Firefox/browser/YouTube search) → Pig via pig-io or local llama-server
 
+## Turn management
+
+The live router uses Pipecat's standard `UserTurnProcessor` with local Smart Turn v3. Raw VAD starts audio collection without immediately interrupting TTS. Accepted barge-in broadcasts a standard Pipecat interruption, while routing waits for `UserStoppedSpeakingFrame` so incomplete pauses can continue as one semantic turn.
+
 ## Environment
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `VOICE_ROUTER_VAD_STOP_SECS` | `0.9` | Silence before end-of-utterance |
-| `VOICE_ROUTER_MOONSHINE_MODEL` | `tiny-streaming` | Moonshine STT model |
+| `VOICE_ROUTER_VAD_MIN_VOLUME` | `0.006` | Reject low-level AEC residue before Moonshine to prevent hallucinated utterances |
+| `VOICE_ROUTER_BARGE_MIN_VAD_SECS` | `0.55` | Minimum energy-qualified speech span for arbitrary barge-in; explicit stop/wait commands bypass it |
+| `VOICE_ROUTER_BARGE_MIN_RMS` | `0.04` | Normalized mic RMS required before TTS pauses; monitored continuously even when TTS residue opened VAD first |
+| `FRONTIER_THINKING_REPEAT` | `0` | Speak one thinking cue; set to `1` to restore the repeating cadence |
+| `VOICE_ROUTER_MOONSHINE_MODEL` | `small-streaming` | Moonshine STT model; improves accuracy over tiny-streaming |
 | `VOICE_ROUTER_FUZZY_THRESHOLD` | `85` | Fuzzy route match score |
 | `VOICE_ROUTER_LLM_MAX_TOKENS` | `64` | LLM fallback response length |
 | `VOICE_ROUTER_AEC_SOURCE_MASTER` | first physical USB source | Optional PipeWire source override |

@@ -24,11 +24,46 @@
         "turn off tts",
         "turn off text to speech",
         "disable tts",
-        "disable text to speech"
+        "disable text to speech",
+        "just disable tts",
+        "it's disable tts",
+        "it's disabled tts"
       ],
       "route": "voice_control",
       "function": "set_tts",
       "args": {"enabled": false},
+      "tts": true
+    },
+    {
+      "name": "enable_frontier",
+      "description": "Enable frontier voice routing to the dedicated Pi TUI bridge (show window, backend=frontier).",
+      "match": [
+        "enable frontier",
+        "turn on frontier",
+        "enable pig frontier",
+        "turn on pig frontier",
+        "frontier on",
+        "pig frontier on"
+      ],
+      "route": "voice_control",
+      "function": "set_frontier_mode",
+      "args": {"backend": "frontier"},
+      "tts": true
+    },
+    {
+      "name": "disable_frontier",
+      "description": "Disable frontier voice routing and return STT/TTS to local Pig.",
+      "match": [
+        "disable frontier",
+        "turn off frontier",
+        "disable pig frontier",
+        "turn off pig frontier",
+        "frontier off",
+        "pig frontier off"
+      ],
+      "route": "voice_control",
+      "function": "set_frontier_mode",
+      "args": {"backend": "local"},
       "tts": true
     },
     {

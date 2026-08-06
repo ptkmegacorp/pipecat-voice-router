@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import audioop
+from collections import deque
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -25,8 +26,11 @@ from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     Frame,
     InputAudioRawFrame,
+    StartFrame,
     TranscriptionFrame,
     InterimTranscriptionFrame,
+    UserStartedSpeakingFrame,
+    UserStoppedSpeakingFrame,
     VADUserStartedSpeakingFrame,
     VADUserStoppedSpeakingFrame,
 )
@@ -35,6 +39,9 @@ from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.moonshine.stt import MoonshineSTTService, MoonshineSTTSettings, Model
+from pipecat.turns.user_start import VADUserTurnStartStrategy
+from pipecat.turns.user_turn_processor import UserTurnProcessor
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.workers.runner import WorkerRunner
 
 ROOT = Path(__file__).resolve().parent
@@ -58,10 +65,25 @@ LOG_FILE = ROOT / "voice-router.log"
 LLM_BASE_URL = os.environ.get("VOICE_ROUTER_LLM_BASE_URL", "")
 LLM_MODEL = os.environ.get("VOICE_ROUTER_LLM_MODEL", "")
 TTS_CMD = os.environ.get("VOICE_ROUTER_TTS_CMD", "")  # e.g. 'spd-say' or 'espeak'
-MOONSHINE_MODEL = os.environ.get("VOICE_ROUTER_MOONSHINE_MODEL", Model.TINY_STREAMING.value)
+MOONSHINE_MODEL = os.environ.get("VOICE_ROUTER_MOONSHINE_MODEL", Model.SMALL_STREAMING.value)
 LLM_MAX_TOKENS = int(os.environ.get("VOICE_ROUTER_LLM_MAX_TOKENS", "64"))
 PIG_IO_URL = os.environ.get("VOICE_ROUTER_PIG_IO_URL", "http://127.0.0.1:8765").rstrip("/")
 PIG_IO_TIMEOUT = float(os.environ.get("VOICE_ROUTER_PIG_IO_TIMEOUT", "5"))
+FRONTIER_VOICE_URL = os.environ.get("FRONTIER_VOICE_URL", "http://127.0.0.1:8770").rstrip("/")
+BACKEND_STATE_FILE = Path(
+    os.environ.get(
+        "FRONTIER_BACKEND_STATE",
+        Path.home() / ".cache/pig-stack-frontier-voice/backend.json",
+    )
+)
+FRONTIER_SH = os.environ.get(
+    "FRONTIER_SH",
+    "/home/bot/projects/pig-stack-frontier-voice/frontier.sh",
+)
+THINKING_CADENCE_SECONDS = float(os.environ.get("FRONTIER_THINKING_CADENCE", "4"))
+THINKING_REPEAT = os.environ.get("FRONTIER_THINKING_REPEAT", "0") == "1"
+BARGE_MIN_VAD_SECONDS = float(os.environ.get("VOICE_ROUTER_BARGE_MIN_VAD_SECS", "0.55"))
+BARGE_MIN_RMS = float(os.environ.get("VOICE_ROUTER_BARGE_MIN_RMS", "0.04"))
 KOKORO_PYTHON = os.environ.get("VOICE_ROUTER_KOKORO_PYTHON", "/home/bot/doc-tts/.venv/bin/python")
 KOKORO_WORKER = Path(os.environ.get("VOICE_ROUTER_KOKORO_WORKER", ROOT / "kokoro_worker.py"))
 TTS_STATE_FILE = Path(os.environ.get("VOICE_ROUTER_TTS_STATE", Path.home() / ".cache/pipecat-voice/tts.json"))
@@ -70,6 +92,30 @@ TTS_CHUNK_CHARS = int(os.environ.get("VOICE_ROUTER_TTS_CHUNK_CHARS", "180"))
 TTS_PAUSE_SECONDS = float(os.environ.get("VOICE_ROUTER_TTS_PAUSE_SECONDS", "0.65"))
 WM_MSG = ["/home/bot/.config/i3/bin/wm-msg.sh"]
 SPEAKER = None
+
+
+def active_voice_backend() -> str:
+    """Read ~/.cache/pig-stack-frontier-voice/backend.json; default local."""
+    try:
+        backend = str(json.loads(BACKEND_STATE_FILE.read_text()).get("backend", "local")).strip().lower()
+        if backend in {"local", "frontier"}:
+            return backend
+    except Exception:
+        pass
+    return "local"
+
+
+def active_voice_url() -> str:
+    return FRONTIER_VOICE_URL if active_voice_backend() == "frontier" else PIG_IO_URL
+
+
+def abort_active_voice_backend() -> None:
+    url = active_voice_url()
+    try:
+        requests.post(f"{url}/abort", timeout=2)
+        logger.info(f"Posted /abort to {url}")
+    except Exception as exc:
+        logger.warning(f"Voice /abort failed at {url}: {exc}")
 
 
 def wm(*args: str, check: bool = False) -> None:
@@ -200,8 +246,20 @@ class PigResponseSpeaker:
         self._saw_delta = False
         self._current_speech = ""
         self._recent_speech = ""
+        self._turn_speech_chunks = []
+        self._recent_turn_speech = ""
         self._recent_speech_at = 0.0
+        # Rolling TTS text for echo gating — survives _begin_turn / thinking cadence resets.
+        self._echo_memory: list[tuple[float, str]] = []
         self._awaiting_response = False
+        self._frontier_turn = False
+        self._thinking_stop: threading.Event | None = None
+        self._thinking_thread: threading.Thread | None = None
+        self._barge_started_at: float | None = None
+        self._barge_stopped_at: float | None = None
+        self._barge_paused = False
+        self._recent_audio_rms: deque[tuple[float, float]] = deque()
+        self._pending_frontier_final = ""
 
     def _load_enabled(self) -> bool:
         try:
@@ -229,6 +287,7 @@ class PigResponseSpeaker:
 
     def stop(self):
         self._stop.set()
+        self._stop_thinking_cadence()
         with self._lock:
             self._cancel_timer()
             self._send_worker({"op": "shutdown"})
@@ -242,15 +301,210 @@ class PigResponseSpeaker:
     def is_speaking(self) -> bool:
         return self._speaking.is_set()
 
+    @property
+    def in_frontier_turn(self) -> bool:
+        return self._frontier_turn
+
+    # After playback ends, keep guarding briefly — room echo / Moonshine lag.
+    TTS_GUARD_TAIL_SECONDS = 4.0
+    # While TTS guard is active, only accept barge-in if similarity stays below this.
+    CLEAR_NON_ECHO_MAX_SCORE = 0.32
+    ECHO_MEMORY_SECONDS = 20.0
+
+    def _normalize_speech(self, value: str) -> str:
+        return " ".join(re.findall(r"[a-z0-9]+", value.lower()))
+
+    def _remember_spoken(self, text: str) -> None:
+        norm = self._normalize_speech(text)
+        if not norm:
+            return
+        now = time.monotonic()
+        self._echo_memory.append((now, norm))
+        cutoff = now - self.ECHO_MEMORY_SECONDS
+        self._echo_memory = [(t, s) for t, s in self._echo_memory if t >= cutoff]
+
+    def _tts_guard_active(self) -> bool:
+        """True while Kokoro is playing, or shortly after, or frontier has spoken."""
+        if self._speaking.is_set():
+            return True
+        if self._recent_speech_at and time.monotonic() - self._recent_speech_at <= self.TTS_GUARD_TAIL_SECONDS:
+            return True
+        return False
+
+    def _echo_candidates(self) -> list[str]:
+        chunks = [self._normalize_speech(c) for c in self._turn_speech_chunks if self._normalize_speech(c)]
+        candidates = [
+            self._normalize_speech(self._current_speech),
+            self._normalize_speech(self._recent_speech),
+            self._normalize_speech(self._recent_turn_speech),
+        ]
+        for start in range(len(chunks)):
+            for end in range(start + 1, len(chunks) + 1):
+                candidates.append(" ".join(chunks[start:end]))
+        # Rolling memory (includes thinking... + prior finals wiped by _begin_turn).
+        now = time.monotonic()
+        cutoff = now - self.ECHO_MEMORY_SECONDS
+        mem = [s for t, s in self._echo_memory if t >= cutoff]
+        candidates.extend(mem)
+        if mem:
+            candidates.append(" ".join(mem[-12:]))
+        return [c for c in candidates if c]
+
+    def _echo_similarity(self, text: str) -> float:
+        heard = self._normalize_speech(text)
+        if not heard:
+            return 0.0
+        candidates = self._echo_candidates()
+        if not candidates:
+            return 0.0
+        return max(SequenceMatcher(None, heard, candidate).ratio() for candidate in candidates)
+
     def is_likely_echo(self, text: str) -> bool:
-        """Recognize a recent Kokoro sentence coming back through the room mic."""
-        if not self._speaking.is_set() and time.monotonic() - self._recent_speech_at > 2.0:
+        """Recognize recent Kokoro speech returning through the room mic (legacy gate)."""
+        if not self._tts_guard_active():
             return False
-        heard = " ".join(re.findall(r"[a-z0-9]+", text.lower()))
-        spoken = " ".join(re.findall(r"[a-z0-9]+", (self._current_speech or self._recent_speech).lower()))
-        if not heard or not spoken:
+        score = self._echo_similarity(text)
+        if score >= 0.55:
+            logger.info(f"Kokoro echo match score={score:.2f} text={text!r}")
+            return True
+        return False
+
+    def is_clearly_non_echo(self, text: str) -> bool:
+        """Barge-in only when transcript is clearly unlike recent TTS.
+
+        Default while TTS guard is active is to ignore STT — Moonshine garble of
+        Kokoro often scores mid-range and used to leak through as phantom prompts.
+        """
+        heard = self._normalize_speech(text)
+        if not heard:
             return False
-        return SequenceMatcher(None, heard, spoken).ratio() >= 0.55
+        candidates = self._echo_candidates()
+        if not candidates:
+            # Playing/frontier but no reference text yet — cannot prove non-echo.
+            return False
+        score = max(SequenceMatcher(None, heard, candidate).ratio() for candidate in candidates)
+        ok = score < self.CLEAR_NON_ECHO_MAX_SCORE
+        logger.info(
+            f"Kokoro barge-in check score={score:.2f} threshold={self.CLEAR_NON_ECHO_MAX_SCORE} "
+            f"accept={ok} text={text!r}"
+        )
+        return ok
+
+    def should_accept_stt(self, text: str) -> bool:
+        """Accept mic transcripts only when idle, or barge-in is clearly non-echo."""
+        if not self._tts_guard_active():
+            return True
+        return self.is_clearly_non_echo(text)
+
+    @property
+    def has_barge_candidate(self) -> bool:
+        return self._barge_started_at is not None
+
+    def observe_audio_rms(self, rms: int) -> None:
+        now = time.monotonic()
+        level = rms / 32767.0
+        with self._lock:
+            self._recent_audio_rms.append((now, level))
+            cutoff = now - 0.35
+            while self._recent_audio_rms and self._recent_audio_rms[0][0] < cutoff:
+                self._recent_audio_rms.popleft()
+            # TTS residue often opens VAD before the user speaks, so there may
+            # be no second VAD-start event. Upgrade the existing candidate as
+            # soon as nearby speech crosses the calibrated energy threshold.
+            if (
+                self._barge_started_at is not None
+                and self._speaking.is_set()
+                and not self._barge_paused
+                and level >= BARGE_MIN_RMS
+            ):
+                self._barge_started_at = now
+                self._barge_stopped_at = None
+                self._barge_paused = True
+                self._send_worker({"op": "pause"})
+                logger.info(
+                    f"Kokoro dynamically paused for barge-in rms={level:.3f} "
+                    f"threshold={BARGE_MIN_RMS:.3f}"
+                )
+
+    def begin_barge_candidate(self) -> bool:
+        """Track TTS-overlap VAD; pause only when mic energy looks like a nearby user."""
+        with self._lock:
+            if not self._speaking.is_set():
+                return False
+            peak_rms = max((v for _, v in self._recent_audio_rms), default=0.0)
+            if self._barge_started_at is None:
+                self._barge_started_at = time.monotonic()
+                self._barge_stopped_at = None
+            if not self._barge_paused and peak_rms >= BARGE_MIN_RMS:
+                # Upgrade an earlier low-energy echo candidate when nearby speech begins.
+                self._barge_started_at = time.monotonic()
+                self._barge_stopped_at = None
+                self._barge_paused = True
+                self._send_worker({"op": "pause"})
+            logger.info(
+                f"Kokoro barge-in candidate peak_rms={peak_rms:.3f} "
+                f"threshold={BARGE_MIN_RMS:.3f} paused={self._barge_paused}"
+            )
+            return True
+
+    def end_barge_candidate(self) -> None:
+        with self._lock:
+            if self._barge_started_at is not None:
+                self._barge_stopped_at = time.monotonic()
+
+    def resolve_barge_candidate(self, text: str) -> bool:
+        """Accept speech that continued after ducking, or an explicit stop command."""
+        with self._lock:
+            if self._barge_started_at is None:
+                return self.should_accept_stt(text)
+            end = self._barge_stopped_at or time.monotonic()
+            duration = end - self._barge_started_at
+            heard = self._normalize_speech(text)
+            explicit = bool(
+                re.match(r"^(please )?(stop|wait|cancel|hold on|never mind)(\b|$)", heard)
+            )
+            score = self._echo_similarity(text)
+            # Once mic energy proves a nearby speaker is present, accept any
+            # non-empty phrase. Do not make arbitrary barge-in depend on words
+            # or textual similarity to the TTS response.
+            accept = explicit or (
+                self._barge_paused
+                and duration >= BARGE_MIN_VAD_SECONDS
+                and bool(heard)
+            )
+            logger.info(
+                f"Kokoro barge-in resolve duration={duration:.2f}s echo_score={score:.2f} "
+                f"paused={self._barge_paused} explicit={explicit} accept={accept} text={text!r}"
+            )
+            pending_final = self._pending_frontier_final
+            was_paused = self._barge_paused
+            self._pending_frontier_final = ""
+            self._barge_started_at = None
+            self._barge_stopped_at = None
+            self._barge_paused = False
+            if not accept:
+                if pending_final:
+                    self.speak(pending_final)
+                elif was_paused:
+                    self._send_worker({"op": "resume"})
+            return accept
+
+    def resume_barge_candidate(self) -> None:
+        """Resume a paused response when VAD produced no usable transcription."""
+        with self._lock:
+            if self._barge_started_at is None:
+                return
+            logger.info("Kokoro resuming playback; barge-in produced no transcript")
+            pending_final = self._pending_frontier_final
+            was_paused = self._barge_paused
+            self._pending_frontier_final = ""
+            self._barge_started_at = None
+            self._barge_stopped_at = None
+            self._barge_paused = False
+            if pending_final:
+                self.speak(pending_final)
+            elif was_paused:
+                self._send_worker({"op": "resume"})
 
     def set_enabled(self, enabled: bool):
         self._enabled = enabled
@@ -263,13 +517,49 @@ class PigResponseSpeaker:
 
     def interrupt(self):
         """Stop current playback and discard queued speech for this Pig turn."""
+        self._stop_thinking_cadence()
         with self._lock:
             logger.info(f"Kokoro TTS interrupting turn={self._turn}")
+            self._frontier_turn = False
+            self._barge_started_at = None
+            self._barge_stopped_at = None
+            self._barge_paused = False
+            self._pending_frontier_final = ""
             self._muted_turn = True
             self._chunker = SpeechChunker()
             self._cancel_timer()
             self._send_worker({"op": "cancel", "through": self._turn})
             self._speaking.clear()
+
+    def _stop_thinking_cadence(self):
+        if self._thinking_stop is not None:
+            self._thinking_stop.set()
+        self._thinking_stop = None
+        self._thinking_thread = None
+
+    def _start_thinking_cadence(self):
+        """Speak one thinking cue; optionally repeat it until agent_end."""
+        self._stop_thinking_cadence()
+        stop = threading.Event()
+        self._thinking_stop = stop
+
+        with self._lock:
+            if not self._frontier_turn or self._muted_turn:
+                return
+            self.speak("thinking...", force=True)
+        if not THINKING_REPEAT:
+            return
+
+        def loop():
+            while not self._stop.is_set() and not stop.wait(THINKING_CADENCE_SECONDS):
+                with self._lock:
+                    if stop.is_set() or not self._frontier_turn or self._muted_turn:
+                        return
+                    self.speak("thinking...", force=True)
+
+        thread = threading.Thread(target=loop, name="frontier-thinking-tts", daemon=True)
+        self._thinking_thread = thread
+        thread.start()
 
     def speak(self, text: str, force: bool = False):
         if not (force or self._enabled):
@@ -281,6 +571,10 @@ class PigResponseSpeaker:
 
     def _begin_turn(self):
         self._send_worker({"op": "cancel", "through": self._turn})
+        if self._turn_speech_chunks:
+            self._recent_turn_speech = " ".join(self._turn_speech_chunks)
+            self._recent_speech_at = time.monotonic()
+        self._turn_speech_chunks = []
         self._turn += 1
         self._sequence = 0
         self._chunker = SpeechChunker()
@@ -320,9 +614,47 @@ class PigResponseSpeaker:
                 self._chunker.add(str(data.get("text", "")))
             self._queue_chunks(self._chunker.take_ready(force=True))
 
+    def _on_frontier_agent_start(self):
+        # Plain replies: no thinking TTS. Cadence starts only on tool_execution_start.
+        logger.info("Kokoro TTS frontier agent_start; waiting for tools or final text")
+        with self._lock:
+            self._frontier_turn = True
+            self._awaiting_response = False
+            self._muted_turn = False
+
+    def _on_frontier_tool_start(self, data: dict):
+        logger.info(
+            f"Kokoro TTS frontier tool_execution_start tool={data.get('toolName')} "
+            f"id={data.get('toolCallId')}; starting thinking cadence"
+        )
+        with self._lock:
+            self._frontier_turn = True
+            self._awaiting_response = False
+            self._muted_turn = False
+        self._start_thinking_cadence()
+
+    def _on_frontier_agent_end(self, data: dict):
+        logger.info(f"Kokoro TTS frontier agent_end turn={self._turn}")
+        self._stop_thinking_cadence()
+        with self._lock:
+            self._frontier_turn = False
+            self._awaiting_response = False
+            if self._muted_turn or not self._enabled or not bool(data.get("speak", True)):
+                return
+            text = str(data.get("text", "")).strip()
+            if not text:
+                return
+            if self._barge_started_at is not None:
+                logger.info("Deferring frontier final TTS until barge-in candidate resolves")
+                self._pending_frontier_final = text
+                return
+            # interrupt thinking playback (if any), then speak final text once (RLock-safe)
+            self.speak(text)
+
     def _queue_chunks(self, chunks: list[str]):
         for text in chunks:
             self._sequence += 1
+            self._remember_spoken(text)
             logger.info(f"Kokoro TTS queued turn={self._turn} seq={self._sequence} chars={len(text)}")
             self._send_worker(
                 {"op": "speak", "turn": self._turn, "seq": self._sequence, "text": text}
@@ -374,6 +706,8 @@ class PigResponseSpeaker:
                     logger.info(f"Kokoro worker ready on {event.get('device')}")
                 elif kind == "play_start":
                     self._current_speech = str(event.get("text", ""))
+                    if self._current_speech:
+                        self._turn_speech_chunks.append(self._current_speech)
                     self._speaking.set()
                     set_status("mode", "speaking")
                     logger.info(
@@ -390,6 +724,7 @@ class PigResponseSpeaker:
                         f"cancelled={event.get('cancelled')}"
                     )
                     self._recent_speech = self._current_speech
+                    self._recent_turn_speech = " ".join(self._turn_speech_chunks)
                     self._recent_speech_at = time.monotonic()
                     self._current_speech = ""
                     self._speaking.clear()
@@ -416,14 +751,21 @@ class PigResponseSpeaker:
             logger.debug(f"Kokoro worker: {line.rstrip()}")
 
     def _listen(self):
+        # Re-read backend each reconnect so enable/disable flips without pipecat restart.
         while not self._stop.is_set():
+            backend = active_voice_backend()
+            url = FRONTIER_VOICE_URL if backend == "frontier" else PIG_IO_URL
             try:
-                with requests.get(f"{PIG_IO_URL}/events", stream=True, timeout=(5, 30)) as response:
+                logger.info(f"Kokoro TTS connecting to {url}/events backend={backend}")
+                with requests.get(f"{url}/events", stream=True, timeout=(5, 30)) as response:
                     response.raise_for_status()
                     event_type = ""
                     for line in response.iter_lines(decode_unicode=True):
                         if self._stop.is_set():
                             return
+                        if active_voice_backend() != backend:
+                            logger.info("Voice backend flipped; reconnecting SSE")
+                            break
                         if not line:
                             event_type = ""
                             continue
@@ -431,17 +773,29 @@ class PigResponseSpeaker:
                             event_type = line[7:]
                         elif line.startswith("data: "):
                             data = json.loads(line[6:]).get("data", {})
+                            frontier = backend == "frontier"
                             if event_type == "user_prompt":
                                 self._on_user_prompt()
                             elif event_type == "turn_start":
-                                self._on_turn_start()
-                            elif event_type == "agent_start" and not self._awaiting_response:
-                                with self._lock:
-                                    self._begin_turn()
+                                if not frontier:
+                                    self._on_turn_start()
+                            elif event_type == "agent_start":
+                                if frontier:
+                                    self._on_frontier_agent_start()
+                                elif not self._awaiting_response:
+                                    with self._lock:
+                                        self._begin_turn()
+                            elif event_type == "tool_execution_start":
+                                if frontier:
+                                    self._on_frontier_tool_start(data)
                             elif event_type == "text_delta":
-                                self._on_delta(str(data.get("delta", "")))
+                                if not frontier:
+                                    self._on_delta(str(data.get("delta", "")))
                             elif event_type == "agent_end":
-                                self._on_agent_end(data)
+                                if frontier or self._frontier_turn:
+                                    self._on_frontier_agent_end(data)
+                                else:
+                                    self._on_agent_end(data)
             except Exception as exc:
                 logger.warning(f"Pig TTS event stream disconnected: {exc}")
                 self._stop.wait(2)
@@ -585,18 +939,20 @@ def list_commands() -> str:
     for r in CONFIG["routes"]:
         examples = r.get("match") or [r.get("prefix", "").strip() + "..."]
         lines.append(f"- {', '.join(examples)}")
-    lines.append("anything else goes to the main local LLM")
+    lines.append("anything else goes to Pig")
     return "\n".join(lines)
 
 
 def call_pig_io(prompt: str) -> str | None:
     set_status("mode", "thinking")
-    # Show overlay workspace immediately on fallback — don't wait for pig-io /ask round-trip.
-    show_pig_io_workspace()
-    logger.info(f"Pig fallback using {PIG_IO_URL}")
+    backend = active_voice_backend()
+    url = FRONTIER_VOICE_URL if backend == "frontier" else PIG_IO_URL
+    if backend != "frontier":
+        show_pig_io_workspace()
+    logger.info(f"Voice ask using {url} backend={backend}")
     try:
         resp = requests.post(
-            f"{PIG_IO_URL}/ask",
+            f"{url}/ask",
             json={
                 "text": prompt,
                 "source": "pipecat_voice",
@@ -606,11 +962,10 @@ def call_pig_io(prompt: str) -> str | None:
         )
         resp.raise_for_status()
         data = resp.json()
-        logger.info(f"pig-io accepted id={data.get('id')} queued={data.get('queued')}")
-        # Event streaming/TTS consumption is intentionally handled in a later step.
+        logger.info(f"{backend} accepted id={data.get('id')} queued={data.get('queued')}")
         return "sent to pig"
     except Exception as e:
-        logger.warning(f"pig-io unavailable, falling back to local llama-server: {e}")
+        logger.warning(f"{backend} unavailable at {url}, falling back to local llama-server: {e}")
         return None
 
 
@@ -667,6 +1022,31 @@ def execute(action: dict):
         SPEAKER.set_enabled(enabled)
         notify(f"text to speech {'enabled' if enabled else 'disabled'}")
         speak(f"Text to speech is {'on' if enabled else 'off'}.", force=True)
+    elif fn == "set_frontier_mode":
+        backend = str(args.get("backend", "local")).strip().lower()
+        cmd = "enable" if backend == "frontier" else "disable"
+        try:
+            result = subprocess.run(
+                [FRONTIER_SH, cmd],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
+            if result.returncode != 0:
+                err = (result.stderr or result.stdout or f"exit {result.returncode}").strip()
+                logger.error(f"frontier.sh {cmd} failed: {err}")
+                notify(f"frontier {cmd} failed")
+                speak(f"Frontier {cmd} failed.", force=True)
+                return
+            notify(f"frontier {cmd}")
+            speak(f"Frontier mode is {'on' if cmd == 'enable' else 'off'}.", force=True)
+        except FileNotFoundError:
+            logger.error(f"frontier launcher missing: {FRONTIER_SH}")
+            speak("Frontier launcher is not installed yet.", force=True)
+        except Exception as exc:
+            logger.error(f"frontier.sh {cmd} error: {exc}")
+            speak(f"Frontier {cmd} failed.", force=True)
     elif fn == "scroll":
         scroll(args["direction"])
     elif fn == "make_full_screen":
@@ -717,6 +1097,8 @@ class AudioDebugProcessor(FrameProcessor):
                 self._peak_rms = max(self._peak_rms, rms)
             except Exception:
                 rms = mx = 0
+            if SPEAKER:
+                SPEAKER.observe_audio_rms(rms)
             now = time.monotonic()
             if now - self._last_log >= 1.0:
                 logger.info(
@@ -737,7 +1119,11 @@ class ResampleTo16kProcessor(FrameProcessor):
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
-        if isinstance(frame, InputAudioRawFrame) and frame.sample_rate != 16000:
+        if isinstance(frame, StartFrame):
+            # Downstream VAD, STT, and Smart Turn all consume the resampled stream.
+            frame.audio_in_sample_rate = 16000
+            await self.push_frame(frame, direction)
+        elif isinstance(frame, InputAudioRawFrame) and frame.sample_rate != 16000:
             converted, self._state = audioop.ratecv(
                 frame.audio, 2, frame.num_channels, frame.sample_rate, 16000, self._state
             )
@@ -757,20 +1143,26 @@ class VADStatusProcessor(FrameProcessor):
     async def _idle_if_no_transcript(self, vad_stop_time: float):
         await asyncio.sleep(4.0)
         if self._last_vad_stop == vad_stop_time:
+            if SPEAKER:
+                SPEAKER.resume_barge_candidate()
             logger.info("No transcription after VAD stop; returning indicator to idle")
             set_status("mode", "idle")
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if isinstance(frame, VADUserStartedSpeakingFrame):
-            # Do not cancel immediately while audio is playing: the room mic can
-            # hear Kokoro. A non-echo final transcript performs the barge-in.
-            if SPEAKER and not SPEAKER.is_speaking:
-                SPEAKER.interrupt()
+            # Invalidate an older no-transcript timer while a new utterance is active.
+            self._last_vad_stop = 0.0
+            # Duck active TTS only when recent mic energy is substantially above
+            # the measured AEC residue. Final STT still validates the interruption.
+            if SPEAKER:
+                SPEAKER.begin_barge_candidate()
             set_status("hearing", "on")
             set_status("mode", "listening")
             logger.info("VAD: user started speaking")
         elif isinstance(frame, VADUserStoppedSpeakingFrame):
+            if SPEAKER:
+                SPEAKER.end_barge_candidate()
             set_status("hearing", "off")
             set_status("mode", "listening")
             logger.info("VAD: user stopped speaking; waiting for Pipecat MoonshineSTTService")
@@ -780,25 +1172,58 @@ class VADStatusProcessor(FrameProcessor):
 
 
 class VoiceRouterProcessor(FrameProcessor):
+    """Route only semantically completed Pipecat user turns."""
+
+    def __init__(self):
+        super().__init__()
+        self._pending_text = ""
+
+    def _route_pending(self) -> None:
+        text = self._pending_text
+        self._pending_text = ""
+        if not text:
+            logger.info("Pipecat user turn stopped without an accepted transcript")
+            return
+        notify(f"heard: {text}")
+        action = route_text(text, {"focused_window": get_focused_window()})
+        if action.get("function") in {"ask_pig", "ask_local_llm"}:
+            set_status("mode", "thinking")
+        execute(action)
+        set_status("mode", "idle")
+
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
-        if isinstance(frame, InterimTranscriptionFrame):
+        if isinstance(frame, UserStartedSpeakingFrame):
+            self._pending_text = ""
+            logger.info("Pipecat user turn started")
+        elif isinstance(frame, InterimTranscriptionFrame):
             logger.debug(f"interim={frame.text!r}")
+            await self.push_frame(frame, direction)
         elif isinstance(frame, TranscriptionFrame):
             text = frame.text.strip()
             logger.info(f"transcription frame={text!r}")
-            if text and SPEAKER and SPEAKER.is_likely_echo(text):
-                logger.info("ignoring likely Kokoro echo transcription")
+            if not text:
+                await self.push_frame(frame, direction)
                 return
-            if text:
-                if SPEAKER and SPEAKER.is_speaking:
-                    SPEAKER.interrupt()
-                notify(f"heard: {text}")
-                action = route_text(text, {"focused_window": get_focused_window()})
-                if action.get("function") in {"ask_pig", "ask_local_llm"}:
-                    set_status("mode", "thinking")
-                execute(action)
-                set_status("mode", "idle")
+            if SPEAKER and SPEAKER.has_barge_candidate:
+                if not SPEAKER.resolve_barge_candidate(text):
+                    logger.info("ignoring rejected TTS barge-in candidate")
+                    await self.push_frame(frame, direction)
+                    return
+                # The standard turn lifecycle owns interruption propagation;
+                # these calls bridge it to external Kokoro and HTTP backends.
+                await self.broadcast_interruption()
+                SPEAKER.interrupt()
+                abort_active_voice_backend()
+            elif SPEAKER and not SPEAKER.should_accept_stt(text):
+                logger.info("ignoring STT during post-TTS echo guard")
+                await self.push_frame(frame, direction)
+                return
+            self._pending_text = " ".join(part for part in (self._pending_text, text) if part)
+            await self.push_frame(frame, direction)
+        elif isinstance(frame, UserStoppedSpeakingFrame):
+            logger.info("Pipecat user turn stopped")
+            self._route_pending()
         else:
             await self.push_frame(frame, direction)
 
@@ -831,21 +1256,32 @@ async def main():
     audio_input = PulseAECInputTransport(AEC_SOURCE_NAME)
     audio_debug = AudioDebugProcessor()
     resampler = ResampleTo16kProcessor()
-    vad = VADProcessor(
-        vad_analyzer=SileroVADAnalyzer(
-            params=VADParams(
-                confidence=float(os.environ.get("VOICE_ROUTER_VAD_CONFIDENCE", "0.25")),
-                start_secs=float(os.environ.get("VOICE_ROUTER_VAD_START_SECS", "0.08")),
-                stop_secs=float(os.environ.get("VOICE_ROUTER_VAD_STOP_SECS", "0.9")),
-                min_volume=float(os.environ.get("VOICE_ROUTER_VAD_MIN_VOLUME", "0.001")),
-            )
-        )
+    vad_params = VADParams(
+        confidence=float(os.environ.get("VOICE_ROUTER_VAD_CONFIDENCE", "0.25")),
+        start_secs=float(os.environ.get("VOICE_ROUTER_VAD_START_SECS", "0.08")),
+        stop_secs=float(os.environ.get("VOICE_ROUTER_VAD_STOP_SECS", "0.9")),
+        min_volume=float(os.environ.get("VOICE_ROUTER_VAD_MIN_VOLUME", "0.006")),
     )
+    logger.info(
+        f"Silero VAD confidence={vad_params.confidence} start_secs={vad_params.start_secs} "
+        f"stop_secs={vad_params.stop_secs} min_volume={vad_params.min_volume}"
+    )
+    vad = VADProcessor(vad_analyzer=SileroVADAnalyzer(params=vad_params))
     vad_status = VADStatusProcessor()
     stt = MoonshineSTTService(settings=MoonshineSTTSettings(model=MOONSHINE_MODEL))
     logger.info(f"Moonshine STT model={MOONSHINE_MODEL}")
+    turns = UserTurnProcessor(
+        user_turn_strategies=UserTurnStrategies(
+            # Raw VAD begins audio collection for Smart Turn, but does not
+            # interrupt external TTS until the transcript passes barge validation.
+            start=[VADUserTurnStartStrategy(enable_interruptions=False)],
+        )
+    )
     router = VoiceRouterProcessor()
-    pipeline = Pipeline([audio_input, audio_debug, resampler, vad, vad_status, stt, router])
+    # Router observes transcription before UserTurnProcessor. Pipecat system
+    # frames have priority, so placing it after turns could deliver turn-stop
+    # before the transcription data frame it finalizes.
+    pipeline = Pipeline([audio_input, audio_debug, resampler, vad, vad_status, stt, router, turns])
     # Always-on mic listener: Pipecat defaults to a 5m idle timeout on UserSpeakingFrame
     # and will exit even while audio is flowing. Disable unless explicitly configured.
     idle_timeout = os.environ.get("VOICE_ROUTER_IDLE_TIMEOUT_SECS", "")

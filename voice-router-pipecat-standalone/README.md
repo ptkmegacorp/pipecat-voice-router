@@ -11,6 +11,7 @@ Kokoro playback → PipeWire WebRTC AEC sink → HDMI speakers
 USB microphone → PipeWire WebRTC AEC source → `parec` → Pipecat
 → Silero VAD
 → Moonshine STT
+→ Pipecat UserTurnProcessor + local Smart Turn v3
 → exact + fuzzy router
 → i3/overlay action OR Pig LLM fallback (Firefox/browser requests use fallback)
 ```
@@ -163,11 +164,15 @@ VOICE_ROUTER_AEC_SINK_MASTER=alsa_output...
 
 Requires `pactl`, `parec`, PipeWire's echo-cancel module, and `aec/libspa-aec-webrtc`.
 
+## Turn management
+
+The pipeline uses Pipecat's standard `UserTurnProcessor` and bundled local Smart Turn v3 model. VAD begins turn audio collection with automatic interruption disabled; accepted barge-in broadcasts Pipecat's interruption frame and bridges it to Kokoro cancellation plus the active backend `/abort`. The router submits text only after Pipecat emits `UserStoppedSpeakingFrame`.
+
 ## TTS
 
 TTS is off by default. Say **`turn on tts`** (or `enable text to speech`) to enable it; the setting persists in `~/.cache/pipecat-voice/tts.json`. Say `turn off tts` to disable it.
 
-Pig `text_delta` events are split at sentence boundaries and sent to a persistent, pre-warmed **Kokoro-82M** worker, so playback can begin before Pig finishes its response. A 180-character limit or a 650 ms stream pause also flushes unfinished sentences; `agent_end` flushes the remainder. Synthesis and playback use separate queues, and new microphone speech cancels queued/current audio. The router limits each reply to 2,400 spoken characters and omits fenced code blocks. (Parakeet is ASR; Kokoro is the installed 82M TTS model.)
+Pig `text_delta` events are split at sentence boundaries and sent to a persistent, pre-warmed **Kokoro-82M** worker, so playback can begin before Pig finishes its response. A 180-character limit or a 650 ms stream pause also flushes unfinished sentences; `agent_end` flushes the remainder. Synthesis and playback use separate queues. During playback, microphone RMS is monitored continuously, including when TTS residue opened VAD before the user spoke. Nearby speech pauses Kokoro, and any non-empty energy-qualified phrase can interrupt; accepted speech cancels TTS and aborts the active backend, while rejected echo cannot cut playback. Explicit `stop`, `wait`, `cancel`, `hold on`, and `never mind` commands bypass the duration check. Frontier speaks one initial `thinking...` cue by default instead of repeating it. The router limits each reply to 2,400 spoken characters and omits fenced code blocks. (Parakeet is ASR; Kokoro is the installed 82M TTS model.)
 
 Useful overrides:
 
@@ -176,6 +181,9 @@ VOICE_ROUTER_TTS_CHUNK_CHARS=180
 VOICE_ROUTER_TTS_PAUSE_SECONDS=0.65
 VOICE_ROUTER_TTS_VOICE=af_heart
 VOICE_ROUTER_TTS_SPEED=1.1
+VOICE_ROUTER_BARGE_MIN_VAD_SECS=0.55
+VOICE_ROUTER_BARGE_MIN_RMS=0.04
+FRONTIER_THINKING_REPEAT=0
 VOICE_ROUTER_TTS_KEEP_LEADING_MS=40
 VOICE_ROUTER_TTS_KEEP_TRAILING_MS=100
 VOICE_ROUTER_KOKORO_PYTHON=/home/bot/doc-tts/.venv/bin/python

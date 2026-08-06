@@ -7,6 +7,7 @@ import json
 import os
 import queue
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -105,6 +106,27 @@ def cancel_through(turn: int) -> None:
         player = CURRENT_PLAYER
     if player and player.poll() is None:
         player.terminate()
+        # A stopped process cannot handle SIGTERM until it is continued.
+        try:
+            player.send_signal(signal.SIGCONT)
+        except ProcessLookupError:
+            pass
+
+
+def pause_playback() -> None:
+    with PLAYER_LOCK:
+        player = CURRENT_PLAYER
+    if player and player.poll() is None:
+        player.send_signal(signal.SIGSTOP)
+        emit("play_paused")
+
+
+def resume_playback() -> None:
+    with PLAYER_LOCK:
+        player = CURRENT_PLAYER
+    if player and player.poll() is None:
+        player.send_signal(signal.SIGCONT)
+        emit("play_resumed")
 
 
 def synth_loop() -> None:
@@ -239,6 +261,10 @@ def main() -> int:
                 SYNTH_QUEUE.put(command)
             elif op == "cancel":
                 cancel_through(int(command.get("through", 0)))
+            elif op == "pause":
+                pause_playback()
+            elif op == "resume":
+                resume_playback()
             elif op == "shutdown":
                 cancel_through(2**31 - 1)
                 SYNTH_QUEUE.put(None)
