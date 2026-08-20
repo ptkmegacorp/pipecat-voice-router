@@ -170,7 +170,19 @@ The pipeline uses Pipecat's standard `UserTurnProcessor` and bundled local Smart
 
 ## TTS
 
-TTS is off by default. Say **`turn on tts`** (or `enable text to speech`) to enable it; the setting persists in `~/.cache/pipecat-voice/tts.json`. Say `turn off tts` to disable it.
+TTS is off by default. Say **`turn on tts`** (or `enable text to speech`) to enable it; the setting persists in `~/.cache/pipecat-voice/tts.json`. Say `turn off tts` to disable it. Agents should use **`saturn-voice-control`**. Live control plane (loopback HTTP + unix socket):
+
+```text
+GET  /status /tts /routes /health
+POST /tts /tts/on /tts/off /tts/stop /interrupt
+POST /abort
+POST /say {"text":"..."}          # same as STT → route_text → execute
+POST /execute {"name":"disable_tts"}
+POST /frontier {"enabled":false}
+POST /speak {"text":"...", "force": true}
+```
+
+`http://127.0.0.1:8788` and `~/.cache/pipecat-voice/control.sock`. CLI: `saturn-voice-control pipecat|abort|say|routes|route|frontier`.
 
 Pig `text_delta` events are split at sentence boundaries and sent to a persistent, pre-warmed **Kokoro-82M** worker, so playback can begin before Pig finishes its response. A 180-character limit or a 650 ms stream pause also flushes unfinished sentences; `agent_end` flushes the remainder. Synthesis and playback use separate queues. During playback, microphone RMS is monitored continuously, including when TTS residue opened VAD before the user spoke. Nearby speech pauses Kokoro, and any non-empty energy-qualified phrase can interrupt; accepted speech cancels TTS and aborts the active backend, while rejected echo cannot cut playback. Explicit `stop`, `wait`, `cancel`, `hold on`, and `never mind` commands bypass the duration check. Frontier speaks one initial `thinking...` cue by default instead of repeating it. The router limits each reply to 2,400 spoken characters and omits fenced code blocks. (Parakeet is ASR; Kokoro is the installed 82M TTS model.)
 

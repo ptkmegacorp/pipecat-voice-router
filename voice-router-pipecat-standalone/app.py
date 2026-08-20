@@ -56,6 +56,7 @@ from pulse_aec import (  # noqa: E402
     setup_echo_cancel,
 )
 from routing import route_text  # noqa: E402
+from control_http import ControlHooks, start_control, stop_control  # noqa: E402
 
 STATUS = ROUTING_DIR / "voice_status.py"
 CONFIG = json.loads((ROUTING_DIR / "router_config.json").read_text())
@@ -505,6 +506,16 @@ class PigResponseSpeaker:
                 self.speak(pending_final)
             elif was_paused:
                 self._send_worker({"op": "resume"})
+
+    def snapshot(self) -> dict:
+        return {
+            "enabled": bool(self._enabled),
+            "speaking": self.is_speaking,
+            "turn": self._turn,
+            "muted_turn": bool(self._muted_turn),
+            "frontier_turn": self.in_frontier_turn,
+            "state_file": str(TTS_STATE_FILE),
+        }
 
     def set_enabled(self, enabled: bool):
         self._enabled = enabled
@@ -1235,6 +1246,16 @@ async def main():
     os.environ["DOC_TTS_SINK"] = AEC_SINK_NAME
     SPEAKER = PigResponseSpeaker()
     SPEAKER.start()
+    start_control(
+        ControlHooks(
+            get_speaker=lambda: SPEAKER,
+            execute=execute,
+            route_text=lambda text: route_text(text, {"focused_window": get_focused_window()}),
+            abort=abort_active_voice_backend,
+            get_backend=active_voice_backend,
+            routes=list(CONFIG.get("routes") or []),
+        )
+    )
     set_status("profile", "pipecat pig-io")
     set_status("enabled", "on")
     set_status("mode", "idle")
@@ -1293,6 +1314,7 @@ async def main():
         await runner.run()
     finally:
         SPEAKER.stop()
+        stop_control()
         cleanup_echo_cancel()
         set_status("enabled", "off")
         try:
