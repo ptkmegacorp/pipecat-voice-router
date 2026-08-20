@@ -9,6 +9,7 @@ It is separate from the Pig extension. It uses Pipecat as the framework:
 ```text
 Kokoro playback → PipeWire WebRTC AEC sink → HDMI speakers
 USB microphone → PipeWire WebRTC AEC source → `parec` → Pipecat
+A15 Saturn Mic → `ws://saturn:8789/mic` (16 kHz PCM, upsampled to 48 kHz)
 → Silero VAD
 → Moonshine STT
 → Pipecat UserTurnProcessor + local Smart Turn v3
@@ -163,6 +164,17 @@ VOICE_ROUTER_AEC_SINK_MASTER=alsa_output...
 ```
 
 Requires `pactl`, `parec`, PipeWire's echo-cancel module, and `aec/libspa-aec-webrtc`.
+
+## Saturn Mic (A15 → Pig)
+
+The Galaxy A15 top-bar **saturn mic** button streams 16 kHz PCM to
+`ws://0.0.0.0:8789/mic`. While a client is connected, that audio replaces the
+Pulse AEC source in the same pipeline (Silero → Moonshine → pig router).
+Disconnect returns to the saturn USB/Pulse mic.
+
+This is **not** `phone-node-pi` `:8766/voice` (composer llama/smart VoiceLink).
+
+Needs LAN UFW TCP **8789**. Status key `mic` becomes `saturn-mic A15` while connected.
 
 ## Turn management
 

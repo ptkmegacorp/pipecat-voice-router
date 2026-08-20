@@ -19,6 +19,7 @@ Pig/Pig-IO voice routing:
 ```text
 Kokoro playback → PipeWire WebRTC AEC sink → HDMI speakers
 USB microphone → PipeWire WebRTC AEC source → Pipecat
+A15 Saturn Mic → ws://saturn:8789/mic → same Pipecat pipeline
 → Silero VAD
 → Moonshine STT
 → Pipecat UserTurnProcessor + local Smart Turn v3

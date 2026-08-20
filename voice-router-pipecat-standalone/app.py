@@ -51,10 +51,10 @@ if str(ROUTING_DIR) not in sys.path:
 from pulse_aec import (  # noqa: E402
     AEC_SINK_NAME,
     AEC_SOURCE_NAME,
-    PulseAECInputTransport,
     cleanup_echo_cancel,
     setup_echo_cancel,
 )
+from remote_mic import HybridMicInputTransport, RemoteMicHub  # noqa: E402
 from routing import route_text  # noqa: E402
 from control_http import ControlHooks, start_control, stop_control  # noqa: E402
 
@@ -1274,7 +1274,11 @@ async def main():
 
     device_label = f"WebRTC AEC: {aec['source_master']}"
     set_status("mic", device_label)
-    audio_input = PulseAECInputTransport(AEC_SOURCE_NAME)
+    mic_hub = RemoteMicHub(
+        on_active=lambda on: set_status("mic", "saturn-mic A15" if on else device_label)
+    )
+    hub_task = asyncio.create_task(mic_hub.serve())
+    audio_input = HybridMicInputTransport(AEC_SOURCE_NAME, mic_hub)
     audio_debug = AudioDebugProcessor()
     resampler = ResampleTo16kProcessor()
     vad_params = VADParams(
@@ -1313,6 +1317,11 @@ async def main():
     try:
         await runner.run()
     finally:
+        try:
+            await mic_hub.close()
+            await hub_task
+        except Exception:
+            pass
         SPEAKER.stop()
         stop_control()
         cleanup_echo_cancel()
