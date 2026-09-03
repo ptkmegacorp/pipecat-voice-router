@@ -90,7 +90,7 @@ KOKORO_WORKER = Path(os.environ.get("VOICE_ROUTER_KOKORO_WORKER", ROOT / "kokoro
 TTS_STATE_FILE = Path(os.environ.get("VOICE_ROUTER_TTS_STATE", Path.home() / ".cache/pipecat-voice/tts.json"))
 TTS_MAX_CHARS = int(os.environ.get("VOICE_ROUTER_TTS_MAX_CHARS", "2400"))
 TTS_CHUNK_CHARS = int(os.environ.get("VOICE_ROUTER_TTS_CHUNK_CHARS", "180"))
-TTS_PAUSE_SECONDS = float(os.environ.get("VOICE_ROUTER_TTS_PAUSE_SECONDS", "0.65"))
+TTS_PAUSE_SECONDS = float(os.environ.get("VOICE_ROUTER_TTS_PAUSE_SECONDS", "0.45"))
 WM_MSG = ["/home/bot/.config/i3/bin/wm-msg.sh"]
 SPEAKER = None
 

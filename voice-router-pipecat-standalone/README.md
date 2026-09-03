@@ -196,20 +196,20 @@ POST /speak {"text":"...", "force": true}
 
 `http://127.0.0.1:8788` and `~/.cache/pipecat-voice/control.sock`. CLI: `saturn-voice-control pipecat|abort|say|routes|route|frontier`.
 
-Pig `text_delta` events are split at sentence boundaries and sent to a persistent, pre-warmed **Kokoro-82M** worker, so playback can begin before Pig finishes its response. A 180-character limit or a 650 ms stream pause also flushes unfinished sentences; `agent_end` flushes the remainder. Synthesis and playback use separate queues. During playback, microphone RMS is monitored continuously, including when TTS residue opened VAD before the user spoke. Nearby speech pauses Kokoro, and any non-empty energy-qualified phrase can interrupt; accepted speech cancels TTS and aborts the active backend, while rejected echo cannot cut playback. Explicit `stop`, `wait`, `cancel`, `hold on`, and `never mind` commands bypass the duration check. Frontier speaks one initial `thinking...` cue by default instead of repeating it. The router limits each reply to 2,400 spoken characters and omits fenced code blocks. (Parakeet is ASR; Kokoro is the installed 82M TTS model.)
+Pig `text_delta` events are split at sentence boundaries and sent to a persistent, pre-warmed **Kokoro-82M** worker, so playback can begin before Pig finishes its response. A 180-character limit or a 450 ms stream pause also flushes unfinished sentences; `agent_end` flushes the remainder. The worker uses a **conversation** Kokoro profile (no document sentence-gap, 15 ms crossfade, 20/40 ms pad) — not doc-tts narration pacing. Synthesis and playback use separate queues. During playback, microphone RMS is monitored continuously, including when TTS residue opened VAD before the user spoke. Nearby speech pauses Kokoro, and any non-empty energy-qualified phrase can interrupt; accepted speech cancels TTS and aborts the active backend, while rejected echo cannot cut playback. Explicit `stop`, `wait`, `cancel`, `hold on`, and `never mind` commands bypass the duration check. Frontier speaks one initial `thinking...` cue by default instead of repeating it. The router limits each reply to 2,400 spoken characters and omits fenced code blocks. (Parakeet is ASR; Kokoro is the installed 82M TTS model.)
 
 Useful overrides:
 
 ```bash
 VOICE_ROUTER_TTS_CHUNK_CHARS=180
-VOICE_ROUTER_TTS_PAUSE_SECONDS=0.65
+VOICE_ROUTER_TTS_PAUSE_SECONDS=0.45
 VOICE_ROUTER_TTS_VOICE=af_heart
 VOICE_ROUTER_TTS_SPEED=1.1
 VOICE_ROUTER_BARGE_MIN_VAD_SECS=0.55
 VOICE_ROUTER_BARGE_MIN_RMS=0.04
 FRONTIER_THINKING_REPEAT=0
-VOICE_ROUTER_TTS_KEEP_LEADING_MS=40
-VOICE_ROUTER_TTS_KEEP_TRAILING_MS=100
+VOICE_ROUTER_TTS_KEEP_LEADING_MS=20
+VOICE_ROUTER_TTS_KEEP_TRAILING_MS=40
 VOICE_ROUTER_KOKORO_PYTHON=/home/bot/doc-tts/.venv/bin/python
 ```
 

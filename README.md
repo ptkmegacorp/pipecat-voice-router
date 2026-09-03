@@ -104,11 +104,11 @@ The live router uses Pipecat's standard `UserTurnProcessor` with local Smart Tur
 | `VOICE_ROUTER_AEC_SOURCE_NAME` | `pipecat_aec_source` | Clean virtual microphone source |
 | `VOICE_ROUTER_AEC_SINK_NAME` | `pipecat_aec_sink` | Referenced Kokoro playback sink |
 | `VOICE_ROUTER_TTS_CHUNK_CHARS` | `180` | Maximum streamed text before an unfinished sentence is queued for Kokoro |
-| `VOICE_ROUTER_TTS_PAUSE_SECONDS` | `0.65` | Maximum initial buffering interval for a usable speech chunk |
+| `VOICE_ROUTER_TTS_PAUSE_SECONDS` | `0.45` | Maximum initial buffering interval for a usable speech chunk |
 | `VOICE_ROUTER_KOKORO_PYTHON` | `/home/bot/doc-tts/.venv/bin/python` | Python used by the persistent Kokoro-82M worker |
 | `VOICE_ROUTER_TTS_SPEED` | `1.1` in the systemd unit | Kokoro speaking-rate multiplier |
-| `VOICE_ROUTER_TTS_KEEP_LEADING_MS` | `40` | Low-energy margin retained before each synthesized chunk |
-| `VOICE_ROUTER_TTS_KEEP_TRAILING_MS` | `100` | Low-energy margin retained after each synthesized chunk |
+| `VOICE_ROUTER_TTS_KEEP_LEADING_MS` | `20` | Low-energy margin retained before each synthesized clause |
+| `VOICE_ROUTER_TTS_KEEP_TRAILING_MS` | `40` | Low-energy margin retained after each synthesized clause (conversation; doc-tts keeps its own breaths) |
 
 ## i3bar status
 

@@ -20,7 +20,7 @@ import numpy as np
 DOC_TTS_HOME = Path(os.environ.get("DOC_TTS_HOME", "/home/bot/doc-tts"))
 sys.path.insert(0, str(DOC_TTS_HOME))
 
-from doc_tts.synth import SAMPLE_RATE, SynthConfig, Synthesizer, write_wav  # noqa: E402
+from doc_tts.synth import SAMPLE_RATE, SynthConfig, Synthesizer, chunk_text, write_wav  # noqa: E402
 
 SYNTH_QUEUE: queue.Queue[dict | None] = queue.Queue()
 AUDIO_QUEUE: queue.Queue[dict | None] = queue.Queue()
@@ -29,8 +29,10 @@ PLAYER_LOCK = threading.Lock()
 CANCELLED_THROUGH = 0
 CURRENT_PLAYER: subprocess.Popen | None = None
 CACHE_DIR = Path(tempfile.gettempdir()) / "pipecat-kokoro"
-KEEP_LEADING_MS = int(os.environ.get("VOICE_ROUTER_TTS_KEEP_LEADING_MS", "40"))
-KEEP_TRAILING_MS = int(os.environ.get("VOICE_ROUTER_TTS_KEEP_TRAILING_MS", "100"))
+# Conversation profile — not doc-tts. Tight pad + crossfade; no sentence-gap breaths.
+KEEP_LEADING_MS = int(os.environ.get("VOICE_ROUTER_TTS_KEEP_LEADING_MS", "20"))
+KEEP_TRAILING_MS = int(os.environ.get("VOICE_ROUTER_TTS_KEEP_TRAILING_MS", "40"))
+CROSSFADE_MS = int(os.environ.get("VOICE_ROUTER_TTS_CROSSFADE_MS", "15"))
 
 
 def emit(event: str, **data) -> None:
@@ -93,6 +95,51 @@ def trim_boundary_silence(
     return trimmed, trimmed_ms
 
 
+def crossfade_join(
+    left: np.ndarray, right: np.ndarray, fade_ms: int = CROSSFADE_MS
+) -> np.ndarray:
+    """Overlap-add two utterances so clause joins are not a hard cut or a breath."""
+    a = np.asarray(left, dtype=np.float32)
+    b = np.asarray(right, dtype=np.float32)
+    n = min(int(SAMPLE_RATE * fade_ms / 1000), len(a), len(b))
+    if n <= 0:
+        if a.size == 0:
+            return b
+        if b.size == 0:
+            return a
+        return np.concatenate([a, b])
+    t = np.linspace(0.0, 1.0, n, dtype=np.float32)
+    mixed = a[-n:] * (1.0 - t) + b[:n] * t
+    return np.concatenate([a[:-n], mixed, b[n:]])
+
+
+def _pipeline_audio(synth: Synthesizer, text: str) -> list[np.ndarray]:
+    pieces: list[np.ndarray] = []
+    for result in synth._pipeline(text, voice=synth.cfg.voice, speed=synth.cfg.speed):
+        audio = result.audio
+        if audio is None:
+            continue
+        if hasattr(audio, "detach"):
+            audio = audio.detach().cpu().numpy()
+        audio = np.asarray(audio, dtype=np.float32)
+        if audio.size:
+            pieces.append(audio)
+    return pieces
+
+
+def speak_conversational(synth: Synthesizer, text: str) -> np.ndarray:
+    """Synthesize for talk: trim Kokoro pad per yield, crossfade, no sentence-gap silence."""
+    joined = np.zeros(0, dtype=np.float32)
+    for chunk in chunk_text(text, synth.cfg.max_chunk_chars):
+        for audio in _pipeline_audio(synth, chunk):
+            leading_ms, trailing_ms = boundary_silence_ms(audio)
+            trimmed, _ = trim_boundary_silence(audio, leading_ms, trailing_ms)
+            if trimmed.size == 0:
+                continue
+            joined = crossfade_join(joined, trimmed) if joined.size else trimmed
+    return joined
+
+
 def is_cancelled(turn: int) -> bool:
     with STATE_LOCK:
         return turn <= CANCELLED_THROUGH
@@ -132,11 +179,12 @@ def resume_playback() -> None:
 def synth_loop() -> None:
     cfg = SynthConfig(
         voice=os.environ.get("VOICE_ROUTER_TTS_VOICE", "af_heart"),
-        speed=float(os.environ.get("VOICE_ROUTER_TTS_SPEED", "1.0")),
+        speed=float(os.environ.get("VOICE_ROUTER_TTS_SPEED", "1.1")),
         device=os.environ.get("VOICE_ROUTER_TTS_DEVICE") or None,
+        sentence_gap_ms=0,
     )
     synth = Synthesizer(cfg)
-    synth.speak_text("Ready.")  # Warm the first inference before live speech.
+    speak_conversational(synth, "Ready.")  # Warm the first inference before live speech.
     emit("ready", device=synth.device)
     while True:
         item = SYNTH_QUEUE.get()
@@ -148,7 +196,7 @@ def synth_loop() -> None:
             continue
         try:
             synth_started = time.monotonic()
-            audio = synth.speak_text(item["text"])
+            audio = speak_conversational(synth, item["text"])
             synth_ms = round((time.monotonic() - synth_started) * 1000)
             if is_cancelled(turn) or not audio.size:
                 continue

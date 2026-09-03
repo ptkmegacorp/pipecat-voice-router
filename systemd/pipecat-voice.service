@@ -13,8 +13,9 @@ Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=DISPLAY=:0
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=VOICE_ROUTER_TTS_SPEED=1.1
-Environment=VOICE_ROUTER_TTS_KEEP_LEADING_MS=40
-Environment=VOICE_ROUTER_TTS_KEEP_TRAILING_MS=100
+Environment=VOICE_ROUTER_TTS_KEEP_LEADING_MS=20
+Environment=VOICE_ROUTER_TTS_KEEP_TRAILING_MS=40
+Environment=VOICE_ROUTER_TTS_PAUSE_SECONDS=0.45
 Environment=VOICE_ROUTER_VAD_MIN_VOLUME=0.006
 Environment=VOICE_ROUTER_MOONSHINE_MODEL=small-streaming
 Environment=VOICE_ROUTER_BARGE_MIN_VAD_SECS=0.55
