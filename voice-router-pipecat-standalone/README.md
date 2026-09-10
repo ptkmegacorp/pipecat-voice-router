@@ -111,7 +111,7 @@ Legacy file (no longer written): `voice-router.log`
 Uses route config from:
 
 ```text
-/home/bot/pipecat-voice-router/voice-router-pipecat/router_config.json
+/home/bot/projects/pipecat-voice-router/voice-router-pipecat/router_config.json
 ```
 
 Current direct routes:
@@ -210,7 +210,7 @@ VOICE_ROUTER_BARGE_MIN_RMS=0.04
 FRONTIER_THINKING_REPEAT=0
 VOICE_ROUTER_TTS_KEEP_LEADING_MS=20
 VOICE_ROUTER_TTS_KEEP_TRAILING_MS=40
-VOICE_ROUTER_KOKORO_PYTHON=/home/bot/doc-tts/.venv/bin/python
+VOICE_ROUTER_KOKORO_PYTHON=/home/bot/projects/doc-tts/.venv/bin/python
 ```
 
 ## i3bar status
@@ -224,7 +224,7 @@ The app updates:
 through:
 
 ```text
-/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py
+/home/bot/projects/pipecat-voice-router/voice-router-pipecat/voice_status.py
 ```
 
 So i3bar shows:
