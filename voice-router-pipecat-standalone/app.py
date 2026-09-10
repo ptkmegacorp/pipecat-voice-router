@@ -905,7 +905,7 @@ MAIN_WS = os.environ.get("PIG_IO_MAIN_WORKSPACE", "2")
 
 
 def ensure_pig_io_overlay():
-    subprocess.Popen(["/home/bot/pig-io/overlay.sh", "show"])
+    subprocess.Popen(["/home/bot/projects/pig-io/overlay.sh", "show"])
 
 
 def show_pig_io_workspace():
@@ -938,11 +938,11 @@ def close_pig_io_overlay():
 
 
 def open_pig_hud():
-    subprocess.Popen(["/home/bot/pig-io/pig-hud.sh", "show"])
+    subprocess.Popen(["/home/bot/projects/pig-io/pig-hud.sh", "show"])
 
 
 def close_pig_hud():
-    subprocess.Popen(["/home/bot/pig-io/pig-hud.sh", "close"])
+    subprocess.Popen(["/home/bot/projects/pig-io/pig-hud.sh", "close"])
 
 
 def list_commands() -> str:

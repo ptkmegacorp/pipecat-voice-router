@@ -106,7 +106,7 @@ MAIN_WS = '2'
 
 
 def ensure_pig_io_overlay():
-    subprocess.Popen(['/home/bot/pig-io/overlay.sh', 'show'])
+    subprocess.Popen(['/home/bot/projects/pig-io/overlay.sh', 'show'])
 
 
 def show_pig_io_workspace():
@@ -137,11 +137,11 @@ def close_pig_io_overlay():
     hide_pig_io_workspace()
 
 def open_pig_hud():
-    subprocess.Popen(['/home/bot/pig-io/pig-hud.sh', 'show'])
+    subprocess.Popen(['/home/bot/projects/pig-io/pig-hud.sh', 'show'])
 
 
 def close_pig_hud():
-    subprocess.Popen(['/home/bot/pig-io/pig-hud.sh', 'close'])
+    subprocess.Popen(['/home/bot/projects/pig-io/pig-hud.sh', 'close'])
 
 
 def ask_pig(prompt):
