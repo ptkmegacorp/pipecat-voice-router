@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-DOC_TTS_HOME = Path(os.environ.get("DOC_TTS_HOME", "/home/bot/doc-tts"))
+DOC_TTS_HOME = Path(os.environ.get("DOC_TTS_HOME", "/home/bot/projects/doc-tts"))
 sys.path.insert(0, str(DOC_TTS_HOME))
 
 from doc_tts.synth import SAMPLE_RATE, SynthConfig, Synthesizer, chunk_text, write_wav  # noqa: E402

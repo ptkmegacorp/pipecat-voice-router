@@ -85,7 +85,7 @@ THINKING_CADENCE_SECONDS = float(os.environ.get("FRONTIER_THINKING_CADENCE", "4"
 THINKING_REPEAT = os.environ.get("FRONTIER_THINKING_REPEAT", "0") == "1"
 BARGE_MIN_VAD_SECONDS = float(os.environ.get("VOICE_ROUTER_BARGE_MIN_VAD_SECS", "0.55"))
 BARGE_MIN_RMS = float(os.environ.get("VOICE_ROUTER_BARGE_MIN_RMS", "0.04"))
-KOKORO_PYTHON = os.environ.get("VOICE_ROUTER_KOKORO_PYTHON", "/home/bot/doc-tts/.venv/bin/python")
+KOKORO_PYTHON = os.environ.get("VOICE_ROUTER_KOKORO_PYTHON", "/home/bot/projects/doc-tts/.venv/bin/python")
 KOKORO_WORKER = Path(os.environ.get("VOICE_ROUTER_KOKORO_WORKER", ROOT / "kokoro_worker.py"))
 TTS_STATE_FILE = Path(os.environ.get("VOICE_ROUTER_TTS_STATE", Path.home() / ".cache/pipecat-voice/tts.json"))
 TTS_MAX_CHARS = int(os.environ.get("VOICE_ROUTER_TTS_MAX_CHARS", "2400"))
