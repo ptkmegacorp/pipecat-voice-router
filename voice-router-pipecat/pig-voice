@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-STATUS=/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py
+STATUS=/home/bot/projects/pipecat-voice-router/voice-router-pipecat/voice_status.py
 PIPESVC=pipecat-voice.service
 PASTE_DIR="$HOME/.cache/pipecat-paste"
 PASTE_PID="$PASTE_DIR/arecord.pid"

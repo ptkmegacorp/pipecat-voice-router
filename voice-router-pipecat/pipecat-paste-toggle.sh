@@ -7,10 +7,10 @@ WAV_FILE="$STATE_DIR/utterance.wav"
 OUT_BASE="$STATE_DIR/transcript"
 OUT_TXT="$OUT_BASE.txt"
 LOG_FILE="$STATE_DIR/pipecat-paste.log"
-STATUS="/home/bot/pipecat-voice-router/voice-router-pipecat/voice_status.py"
+STATUS="/home/bot/projects/pipecat-voice-router/voice-router-pipecat/voice_status.py"
 MIC_DEVICE="${PIPECAT_PASTE_MIC_DEVICE:-plughw:2,0}"
-WHISPER_BIN="${PIPECAT_PASTE_WHISPER_BIN:-/home/bot/whisper.cpp/build/bin/whisper-cli}"
-WHISPER_MODEL="${PIPECAT_PASTE_WHISPER_MODEL:-/home/bot/whisper.cpp/models/ggml-base.en.bin}"
+WHISPER_BIN="${PIPECAT_PASTE_WHISPER_BIN:-/home/bot/projects/vendor/whisper.cpp/build/bin/whisper-cli}"
+WHISPER_MODEL="${PIPECAT_PASTE_WHISPER_MODEL:-/home/bot/projects/vendor/whisper.cpp/models/ggml-base.en.bin}"
 
 mkdir -p "$STATE_DIR"
 log() { printf '%s %s\n' "$(date -Is)" "$*" >> "$LOG_FILE"; }
