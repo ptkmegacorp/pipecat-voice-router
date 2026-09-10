@@ -31,7 +31,7 @@ Current STT thought: Moonshine / the small "moon" streaming STT model family is 
 Pipecat cloned at:
 
 ```text
-/home/bot/pipecat
+/home/bot/projects/vendor/pipecat
 ```
 
 ## Files
@@ -58,7 +58,7 @@ Create a Python venv and install Pipecat once we pick exact audio/STT/TTS provid
 Possible install shape:
 
 ```bash
-cd /home/bot/pipecat
+cd /home/bot/projects/vendor/pipecat
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .

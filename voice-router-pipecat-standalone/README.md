@@ -20,8 +20,8 @@ A15 Saturn Mic → `ws://saturn:8789/mic` (16 kHz PCM, upsampled to 48 kHz)
 ## Location
 
 ```text
-/home/bot/pipecat-voice-router/voice-router-pipecat-standalone
-/home/bot/pipecat-voice-router/voice-router-pipecat
+/home/bot/projects/pipecat-voice-router/voice-router-pipecat-standalone
+/home/bot/projects/pipecat-voice-router/voice-router-pipecat
 ```
 
 GitHub: https://github.com/ptkmegacorp/pipecat-voice-router
@@ -29,13 +29,13 @@ GitHub: https://github.com/ptkmegacorp/pipecat-voice-router
 Pipecat source checkout:
 
 ```text
-/home/bot/pipecat
+/home/bot/projects/vendor/pipecat
 ```
 
 Python venv:
 
 ```text
-/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/.venv
+/home/bot/projects/pipecat-voice-router/voice-router-pipecat-standalone/.venv
 ```
 
 ## Service stack (systemd)
@@ -60,9 +60,9 @@ llama-server.service          always on
 On-demand via rofi (`Mod+Shift+v`) or wrappers:
 
 ```bash
-/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/start.sh
-/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/stop.sh
-/home/bot/pipecat-voice-router/voice-router-pipecat-standalone/status.sh
+/home/bot/projects/pipecat-voice-router/voice-router-pipecat-standalone/start.sh
+/home/bot/projects/pipecat-voice-router/voice-router-pipecat-standalone/stop.sh
+/home/bot/projects/pipecat-voice-router/voice-router-pipecat-standalone/status.sh
 ```
 
 Equivalent systemd:
