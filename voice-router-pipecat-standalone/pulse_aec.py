@@ -53,6 +53,16 @@ def _matching_module_ids() -> list[str]:
     return ids
 
 
+def _module_source_master(module_id: str) -> str:
+    for line in _pactl("list", "short", "modules").splitlines():
+        fields = line.split("\t", 2)
+        if len(fields) >= 3 and fields[0] == module_id and fields[1] == "module-echo-cancel":
+            for part in fields[2].split():
+                if part.startswith("source_master="):
+                    return part.split("=", 1)[1]
+    return ""
+
+
 def _source_master() -> str:
     explicit = os.environ.get("VOICE_ROUTER_AEC_SOURCE_MASTER", "").strip()
     if explicit:
@@ -89,8 +99,15 @@ def cleanup_echo_cancel() -> None:
 
 def setup_echo_cancel() -> dict[str, str]:
     """Create a WebRTC AEC source/sink pair bound to the physical devices."""
-    cleanup_echo_cancel()
     source_master = _source_master()
+    existing = _matching_module_ids()
+    if existing:
+        stale = [mid for mid in existing if _module_source_master(mid) != source_master]
+        if stale:
+            logger.info(f"rebinding AEC module to {source_master} (was: {[ _module_source_master(mid) for mid in stale ]})")
+            cleanup_echo_cancel()
+    else:
+        cleanup_echo_cancel()
     sink_master = _sink_master()
     module_id = _pactl(
         "load-module",
