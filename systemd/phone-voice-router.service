@@ -1,0 +1,19 @@
+[Unit]
+Description=Phone Saturn Mic voice router (transcript HTTP, no Pipecat PCM)
+Documentation=file:/home/bot/projects/pipecat-voice-router/voice-router-pipecat/phone_router_http.py
+After=network-online.target pig-io.service
+Wants=pig-io.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/bot/projects/pipecat-voice-router/voice-router-pipecat
+Environment=HOME=/home/bot
+Environment=PATH=/home/bot/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/usr/bin/python3 /home/bot/projects/pipecat-voice-router/voice-router-pipecat/phone_router_http.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

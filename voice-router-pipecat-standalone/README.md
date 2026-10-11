@@ -167,14 +167,13 @@ Requires `pactl`, `parec`, PipeWire's echo-cancel module, and `aec/libspa-aec-we
 
 ## Saturn Mic (A15 → Pig)
 
-The Galaxy A15 top-bar **saturn mic** button streams 16 kHz PCM to
-`ws://0.0.0.0:8789/mic`. While a client is connected, that audio replaces the
-Pulse AEC source in the same pipeline (Silero → Moonshine → pig router).
-Disconnect returns to the saturn USB/Pulse mic.
+**Baseline (2026-10-11):** Galaxy A15 **saturn mic** uses on-device STT/TTS and POSTs
+transcripts to `http://saturn:8790/route` (`phone-voice-router.service`). Same
+`router_config.json` / Pig fallback as this Pipecat app; no PCM ingest required
+(works while Strata low-RAM blocks `pipecat-voice`). LAN UFW TCP **8790**.
 
-This is **not** `phone-node-pi` `:8766/voice` (composer llama/smart VoiceLink).
-
-Needs LAN UFW TCP **8789**. Status key `mic` becomes `saturn-mic A15` while connected.
+Legacy PCM path: `ws://0.0.0.0:8789/mic` while `pipecat-voice` is running (USB/Pulse
+pipeline here). Not `phone-node-pi` `:8766/voice` (composer VoiceLink).
 
 ## Turn management
 
